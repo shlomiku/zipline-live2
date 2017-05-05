@@ -4,6 +4,11 @@ from runpy import run_path
 import sys
 import warnings
 
+from functools import partial
+
+import pandas as pd
+
+
 import click
 try:
     from pygments import highlight
@@ -17,13 +22,17 @@ from toolz import valfilter, concatv
 from zipline.algorithm import TradingAlgorithm
 from zipline.data.bundles.core import load
 from zipline.data.data_portal import DataPortal
+from zipline.data.data_portal_live import DataPortalLive
 from zipline.finance.trading import TradingEnvironment
 from zipline.pipeline.data import USEquityPricing
 from zipline.pipeline.loaders import USEquityPricingLoader
 from zipline.utils.calendars import get_calendar
 from zipline.utils.factory import create_simulation_parameters
+from zipline.tws_connection import TWSConnection
 import zipline.utils.paths as pth
 
+from logbook.compat import redirect_logging
+redirect_logging()
 
 class _RunAlgoError(click.ClickException, ValueError):
     """Signal an error that should have a different message if invoked from
@@ -63,7 +72,9 @@ def _run(handle_data,
          output,
          print_algo,
          local_namespace,
-         environ):
+         environ,
+         live_trading,
+         tws_uri):
     """Run a backtest for the given algorithm.
 
     This is shared between the cli and :func:`zipline.run_algo`.
@@ -112,6 +123,9 @@ def _run(handle_data,
         else:
             click.echo(algotext)
 
+    if live_trading:
+        tws_connection = TWSConnection(tws_uri)
+
     if bundle is not None:
         bundle_data = load(
             bundle,
@@ -132,7 +146,9 @@ def _run(handle_data,
         env = TradingEnvironment(asset_db_path=connstr)
         first_trading_day =\
             bundle_data.equity_minute_bar_reader.first_trading_day
-        data = DataPortal(
+
+        data_portal_class = partial(DataPortalLive, tws_connection) if live_trading else DataPortal
+        data = data_portal_class(
             env.asset_finder, get_calendar("NYSE"),
             first_trading_day=first_trading_day,
             equity_minute_reader=bundle_data.equity_minute_bar_reader,
@@ -155,6 +171,10 @@ def _run(handle_data,
         env = None
         choose_loader = None
 
+    if live_trading:
+        start = pd.Timestamp.utcnow()
+        end = start + pd.Timedelta('1', 'D')
+
     perf = TradingAlgorithm(
         namespace=namespace,
         env=env,
@@ -165,6 +185,7 @@ def _run(handle_data,
             capital_base=capital_base,
             data_frequency=data_frequency,
         ),
+        live_trading=live_trading,
         **{
             'initialize': initialize,
             'handle_data': handle_data,

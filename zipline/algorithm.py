@@ -29,6 +29,7 @@ from contextlib2 import ExitStack
 from pandas.tseries.tools import normalize_date
 import numpy as np
 
+from functools import partial
 from itertools import chain, repeat
 from numbers import Integral
 
@@ -44,6 +45,7 @@ from six import (
 from zipline._protocol import handle_non_market_minutes
 from zipline.assets.synthetic import make_simple_equity_info
 from zipline.data.data_portal import DataPortal
+from zipline.data.data_portal_live import DataPortalLive
 from zipline.data.us_equity_pricing import PanelBarReader
 from zipline.errors import (
     AttachPipelineAfterInitialize,
@@ -92,6 +94,7 @@ from zipline.finance.asset_restrictions import (
 )
 from zipline.assets import Asset, Equity, Future
 from zipline.gens.tradesimulation import AlgorithmSimulator
+from zipline.gens.livetrading import AlgorithmLiveExecutor, RealtimeClock
 from zipline.pipeline import Pipeline
 from zipline.pipeline.engine import (
     ExplodingPipelineEngine,
@@ -267,6 +270,8 @@ class TradingAlgorithm(object):
         self._platform = kwargs.pop('platform', 'zipline')
 
         self.logger = None
+
+        self.live_trading = kwargs.pop('live_trading', False)
 
         self.data_portal = kwargs.pop('data_portal', None)
 
@@ -536,7 +541,13 @@ class TradingAlgorithm(object):
             "US/Eastern"
         )
 
-        return MinuteSimulationClock(
+        if self.live_trading:
+            time_skew = pd.Timedelta("0s")
+            clock_class = partial(RealtimeClock, time_skew)
+        else:
+            clock_class = MinuteSimulationClock
+
+        return clock_class(
             self.sim_params.sessions,
             execution_opens,
             execution_closes,
@@ -571,18 +582,31 @@ class TradingAlgorithm(object):
             self.on_dt_changed(self.sim_params.start_session)
 
         if not self.initialized:
+            # Live-XXX: Add pickle based init here
             self.initialize(*self.initialize_args, **self.initialize_kwargs)
             self.initialized = True
 
-        self.trading_client = AlgorithmSimulator(
-            self,
-            sim_params,
-            self.data_portal,
-            self._create_clock(),
-            self._create_benchmark_source(),
-            self.restrictions,
-            universe_func=self._calculate_universe
-        )
+        if self.live_trading:
+            log.info("Live trading")
+            self.trading_client = AlgorithmLiveExecutor(
+                self,
+                sim_params,
+                self.data_portal,
+                self._create_clock(),
+                self._create_benchmark_source(),
+                self.restrictions,
+                universe_func=self._calculate_universe
+            )
+        else:
+            self.trading_client = AlgorithmSimulator(
+                self,
+                sim_params,
+                self.data_portal,
+                self._create_clock(),
+                self._create_benchmark_source(),
+                self.restrictions,
+                universe_func=self._calculate_universe
+            )
 
         return self.trading_client.transform()
 
@@ -686,7 +710,8 @@ class TradingAlgorithm(object):
                     self.sim_params.data_frequency,
                 )
 
-                self.data_portal = DataPortal(
+                data_portal_class = DataPortalLive if self.live_trading else DataPortal
+                self.data_portal = data_portal_class(
                     self.asset_finder,
                     self.trading_calendar,
                     first_trading_day=equity_reader.first_trading_day,
