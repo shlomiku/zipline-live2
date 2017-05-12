@@ -32,6 +32,7 @@ class TestRealtimeClock(TestCase):
         cls.closes = trading_o_and_c['market_close']
 
     def test_all_events_emitted(self):
+        # Tests that all the necessary events are yielded
         with patch('zipline.gens.livetrading.pd.to_datetime') as to_dt, \
              patch('zipline.gens.livetrading.sleep') as sleep:
             clock = iter(RealtimeClock(
@@ -75,7 +76,7 @@ class TestRealtimeClock(TestCase):
             self.assertEqual(next(clock), (pd.Timestamp("2017-04-20 20:00:00", tz='UTC'), SESSION_END))
 
     def test_emit_frequency(self):
-        # Test that events are yielded minutely
+        # Tests that events are yielded once every minute.
         with patch('zipline.gens.livetrading.pd.to_datetime') as to_dt, \
              patch('zipline.gens.livetrading.sleep') as sleep:
             clock = iter(RealtimeClock(
@@ -90,6 +91,10 @@ class TestRealtimeClock(TestCase):
             global current_clock
             current_clock = pd.Timestamp("2017-04-20 00:00", tz='UTC')
 
+            # Advance the clock faster than one minute.
+            # In real life we are advancing the clock (sleeping) every second,
+            # here a sub minute clock advancement is good enough to test
+            # that the emit is happening once every minute
             def advance_clock(*args, **kwargs):
                 global current_clock
                 current_clock += pd.Timedelta('50sec')
@@ -111,4 +116,7 @@ class TestRealtimeClock(TestCase):
                 events[event_type].append(ts)
 
     def test_time_skew(self):
+        raise NotImplementedError()
+
+    def test_midday_start(self):
         raise NotImplementedError()

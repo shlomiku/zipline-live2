@@ -272,6 +272,7 @@ class TradingAlgorithm(object):
         self.logger = None
 
         self.live_trading = kwargs.pop('live_trading', False)
+        self.tws_connection = kwargs.pop('tws_connection', None)
 
         self.data_portal = kwargs.pop('data_portal', None)
 
@@ -542,12 +543,12 @@ class TradingAlgorithm(object):
         )
 
         if self.live_trading:
-            time_skew = pd.Timedelta("0s")
-            clock_class = partial(RealtimeClock, time_skew)
+            time_skew = pd.Timedelta("0s")  # TODO(tibor): Calculate the time skew: local_time - server_time
+            Clock = partial(RealtimeClock, time_skew)
         else:
-            clock_class = MinuteSimulationClock
+            Clock = MinuteSimulationClock
 
-        return clock_class(
+        return Clock(
             self.sim_params.sessions,
             execution_opens,
             execution_closes,
@@ -582,7 +583,7 @@ class TradingAlgorithm(object):
             self.on_dt_changed(self.sim_params.start_session)
 
         if not self.initialized:
-            # Live-XXX: Add pickle based init here
+            # TODO(tibor): Add pickle based init for live algos here here
             self.initialize(*self.initialize_args, **self.initialize_kwargs)
             self.initialized = True
 
@@ -710,8 +711,8 @@ class TradingAlgorithm(object):
                     self.sim_params.data_frequency,
                 )
 
-                data_portal_class = DataPortalLive if self.live_trading else DataPortal
-                self.data_portal = data_portal_class(
+                DataPortalClass = DataPortalLive if self.live_trading else DataPortal
+                self.data_portal = DataPortalClass(
                     self.asset_finder,
                     self.trading_calendar,
                     first_trading_day=equity_reader.first_trading_day,
@@ -1612,10 +1613,12 @@ class TradingAlgorithm(object):
         return self.updated_portfolio()
 
     def updated_portfolio(self):
+        tws = self.tws_connection
         if self.portfolio_needs_update:
             self.perf_tracker.position_tracker.sync_last_sale_prices(
                 self.datetime, self._in_before_trading_start, self.data_portal)
-            self._portfolio = \
+            # TODO(tibor): Validate that update_performance call is not required in live
+            self._portfolio = tws.get_portfolio(tws.managed_accounts[0]) if self.live_trading else \
                 self.perf_tracker.get_portfolio(self.performance_needs_update)
             self.portfolio_needs_update = False
             self.performance_needs_update = False
@@ -1626,10 +1629,12 @@ class TradingAlgorithm(object):
         return self.updated_account()
 
     def updated_account(self):
+        tws = self.tws_connection
         if self.account_needs_update:
             self.perf_tracker.position_tracker.sync_last_sale_prices(
                 self.datetime, self._in_before_trading_start, self.data_portal)
-            self._account = \
+            # TODO(tibor): Validate that update_performance call is not required in live
+            self._account = tws.get_account(tws.managed_accounts[0]) if self.live_trading else \
                 self.perf_tracker.get_account(self.performance_needs_update)
 
             self.account_needs_update = False

@@ -35,7 +35,6 @@ class RealtimeClock(object):
         self._last_emit = None
         self._before_trading_start_bar_yielded = False
 
-        # assert minute_emission is True
         assert len(self.sessions) == 1
 
     def __iter__(self):
@@ -48,26 +47,21 @@ class RealtimeClock(object):
             if server_time == self.before_trading_start_minutes and not self._before_trading_start_bar_yielded:
                 self._last_emit = server_time
                 self._before_trading_start_bar_yielded = True
-                log.debug("Yielding BEFORE_TRADING_START_BAR @ {}", server_time)
                 yield server_time, BEFORE_TRADING_START_BAR
             elif server_time < self.execution_opens[0].tz_localize('UTC'):
-                log.debug('sleepy before rth @ {}', server_time)
                 sleep(1)
             elif self.execution_opens[0].tz_localize('UTC') <= server_time  < self.execution_closes[0].tz_localize('UTC'):
-                if server_time - self._last_emit >= pd.Timedelta('1 minute'):
+                if self._last_emit is None or server_time - self._last_emit >= pd.Timedelta('1 minute'):
                     self._last_emit = server_time
-                    log.debug("Yielding BAR @ {}", server_time)
                     yield server_time, BAR
-                    # TODO: yield MINUTE_END
+                    # TODO(tibor): yield MINUTE_END in case of minute_emission
                 else:
                     log.debug('sleepy inside rth @ {}', server_time)
                     sleep(1)
             elif server_time == self.execution_closes[0].tz_localize('UTC'):
-                log.debug("Yielding BAR & SESSION_END @ {}", server_time)
                 yield server_time, BAR
                 yield server_time, SESSION_END
 
-                log.debug("Processing finished")
                 return
             else:
                 # We should not end up in this branch

@@ -147,8 +147,8 @@ def _run(handle_data,
         first_trading_day =\
             bundle_data.equity_minute_bar_reader.first_trading_day
 
-        data_portal_class = partial(DataPortalLive, tws_connection) if live_trading else DataPortal
-        data = data_portal_class(
+        DataPortalClass = partial(DataPortalLive, tws_connection) if live_trading else DataPortal
+        data = DataPortalClass(
             env.asset_finder, get_calendar("NYSE"),
             first_trading_day=first_trading_day,
             equity_minute_reader=bundle_data.equity_minute_bar_reader,
@@ -186,6 +186,7 @@ def _run(handle_data,
             data_frequency=data_frequency,
         ),
         live_trading=live_trading,
+        tws_connection=tws_connection,
         **{
             'initialize': initialize,
             'handle_data': handle_data,

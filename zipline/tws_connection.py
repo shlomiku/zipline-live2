@@ -1,5 +1,8 @@
 from collections import namedtuple
 from datetime import datetime
+from time import sleep
+
+import zipline.protocol as zp
 
 from ib.ext.EClientSocket import EClientSocket
 from ib.ext.EWrapper import EWrapper
@@ -9,7 +12,7 @@ from logbook import Logger
 
 log = Logger('TWS Connection')
 
-LOG_MESSAGES = True
+LOG_MESSAGES = False
 
 RTVolumeBar = namedtuple('RTVolumeBar', ['last_trade_price',
                                          'last_trade_size',
@@ -17,6 +20,7 @@ RTVolumeBar = namedtuple('RTVolumeBar', ['last_trade_price',
                                          'total_volume',
                                          'vwap',
                                          'single_trade_flag'])
+
 
 def log_message(message, mapping):
     if not LOG_MESSAGES:
@@ -42,18 +46,21 @@ class TWSConnection(EClientSocket, EWrapper):
         host, port, client_id = self.tws_uri.split(':')
 
         self._next_ticker_id = 0
+        self._managed_accounts = None
+        self._tickerid_to_symbol = {}
+        self._last_tick = {}
+        self._realtime_bars = {}
+        self._account_values = {}
+        self._account_download_complete = False
+        self._positions = {}
+        self._portfolio = {}
 
         log.info("Initiating TWS Connection to: %s:%s:%s" % (host, int(port), int(client_id)))
         self.eConnect(host, int(port), int(client_id))
         log.info("Done")
 
-        self.__marketDataTickerIDs = {}
-        self.__currentTicks = {}
-        self.__marketData = {}
-
-        # self.reqManagedAccts()
-        # self.reqAccountUpdates(1, '')
-        # self.subscribe_market_data('AAPL')
+        for account in self.managed_accounts:
+            self.reqAccountUpdates(subscribe=True, acctCode=account)
 
 
     @property
@@ -71,7 +78,7 @@ class TWSConnection(EClientSocket, EWrapper):
 
         ticker_id = self.next_ticker_id
 
-        self.__marketDataTickerIDs[ticker_id] = symbol
+        self._tickerid_to_symbol[ticker_id] = symbol
 
         tick_list = "233"  # RTVolume
         self.reqMktData(self.next_ticker_id, contract, tick_list, False)
@@ -80,19 +87,19 @@ class TWSConnection(EClientSocket, EWrapper):
         if tickType not in (4, 8, 45, 46, 48, 54):
             return
 
-        instr = self.__marketDataTickerIDs[tickerId]
+        instr = self._tickerid_to_symbol[tickerId]
 
         if tickType == 45:  # LAST_TIMESTAMP
             dt = datetime.utcfromtimestamp(int(value))
-            self.__currentTicks[instr].dt = dt
+            self._last_tick[instr].dt = dt
         elif tickType == 4:  # LAST_PRICE
-            self.__currentTicks[instr].price = float(value)
+            self._last_tick[instr].price = float(value)
         elif tickType == 8:  # VOLUME
-            self.__currentTicks[instr].volume = int(value)
+            self._last_tick[instr].volume = int(value)
         elif tickType == 54:  # TRADE_COUNT
-            self.__currentTicks[instr].tradeCount = int(value)
+            self._last_tick[instr].tradeCount = int(value)
         elif tickType == 46:  # SHORTABLE
-            self.__currentTicks[instr].shortable = float(value)
+            self._last_tick[instr].shortable = float(value)
         elif tickType == 48:
             # Format:
             # Last trade price; Last trade size;Last trade time;Total volume;VWAP;Single trade flag
@@ -106,13 +113,70 @@ class TWSConnection(EClientSocket, EWrapper):
 
             rt_volume_bar = RTVolumeBar(last_trade_price=float(lastTradePrice),
                                         last_trade_size=int(lastTradeSize),
-                                        last_trade_time=float(lastTradeTime) / 1000, # Convert to microsecond based utc
+                                        last_trade_time=float(lastTradeTime) / 1000,  # Convert to microsecond
                                         total_volume=int(totalVolume),
                                         vwap=float(VWAP),
                                         single_trade_flag=singleTradeFlag
             )
             log.info(rt_volume_bar)
-            self.__marketData[instr].append(rt_volume_bar)
+            self._realtime_bars[instr].append(rt_volume_bar)
+
+    @property
+    def managed_accounts(self):
+        if not self._managed_accounts:
+            self.reqManagedAccts()
+            while not self._managed_accounts:
+                sleep(0.1)
+
+        return self._managed_accounts
+
+    def get_portfolio(self, account_name, currency='USD'):
+        while not self._account_download_complete:
+            sleep(0.1)
+
+        account_values = self._account_values[account_name][currency]
+
+        _portfolio_store = zp.Portfolio()
+        _portfolio_store.capital_used = None  # TODO(tibor)
+        _portfolio_store.starting_cash = None  # TODO(tibor)
+        _portfolio_store.portfolio_value = account_values['EquityWithLoanValue']
+        _portfolio_store.pnl = (account_values['RealizedPnL'] + account_values['UnrealizedPnL'])
+        _portfolio_store.returns = None # TODO(tibor): pnl / total_at_start
+        _portfolio_store.cash = account_values['TotalCashValue']
+        _portfolio_store.start_date = None  # TODO(tibor)
+        _portfolio_store.positions = None  # TODO(tibor)
+        _portfolio_store.positions_value = None  # TODO(tibor)
+        _portfolio_store.positions_exposure = None  # TODO(tibor)
+
+        return _portfolio_store
+
+    def get_account(self, account_name, currency='USD'):
+        while not self._account_download_complete:
+            sleep(0.1)
+
+        account_values = self._account_values[account_name][currency]
+
+        _account_store = zp.Account()
+
+        _account_store.settled_cash = None  # TODO(tibor)
+        _account_store.accrued_interest = None  # TODO(tibor)
+        _account_store.buying_power = account_values['BuyingPower']
+        _account_store.equity_with_loan = account_values['EquityWithLoanValue']
+        _account_store.total_positions_value = None  # TODO(tibor)
+        _account_store.total_positions_exposure = None  # TODO(tibor)
+        _account_store.regt_equity = account_values['RegTEquity']
+        _account_store.regt_margin = account_values['RegTMargin']
+        _account_store.initial_margin_requirement = account_values['FullInitMarginReq']
+        _account_store.maintenance_margin_requirement = account_values['FullMaintMarginReq']
+        _account_store.available_funds = None  # TODO(tibor)
+        _account_store.excess_liquidity = account_values['ExcessLiquidity']
+        _account_store.cushion = self._account_values[account_name]['']['Cushion']
+        _account_store.day_trades_remaining = self._account_values[account_name]['']['DayTradesRemaining']
+        _account_store.leverage = self._account_values[account_name]['']['Leverage-S']
+        _account_store.net_leverage = None  # TODO(tibor)
+        _account_store.net_liquidation = account_values['NetLiquidation']
+
+        return _account_store
 
     def tickPrice(self, tickerId, field, price, canAutoExecute):
         log_message('tickPrice', vars())
@@ -150,16 +214,33 @@ class TWSConnection(EClientSocket, EWrapper):
 
     def updateAccountValue(self, key, value, currency, accountName):
         log_message('updateAccountValue', vars())
+        self._account_values.setdefault(accountName, {})
+        self._account_values[accountName].setdefault(currency, {})
+        self._account_values[accountName][currency].setdefault(key, {})
+
+        self._account_values[accountName][currency][key] = value
 
     def updatePortfolio(self, contract, position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL,
                         accountName):
         log_message('updatePortfolio', vars())
+
+        symbol = contract.m_symbol
+        self._positions.setdefault(symbol, {})
+        self._positions[symbol]['contract'] = contract
+        self._positions[symbol]['position'] = position
+        self._positions[symbol]['marketPrice'] = marketPrice
+        self._positions[symbol]['marketValue'] = marketValue
+        self._positions[symbol]['averageCost'] = averageCost
+        self._positions[symbol]['unrealizedPNL'] = unrealizedPNL
+        self._positions[symbol]['realizedPNL'] = realizedPNL
+        self._positions[symbol]['accountName'] = accountName
 
     def updateAccountTime(self, timeStamp):
         log_message('updateAccountTime', vars())
 
     def accountDownloadEnd(self, accountName):
         log_message('accountDownloadEnd', vars())
+        self._account_download_complete = True
 
     def nextValidId(self, orderId):
         log_message('nextValidId', vars())
@@ -196,6 +277,7 @@ class TWSConnection(EClientSocket, EWrapper):
 
     def managedAccounts(self, accountsList):
         log_message('managedAccounts', vars())
+        self._managed_accounts = accountsList.split(',')
 
     def receiveFA(self, faDataType, xml):
         log_message('receiveFA', vars())
