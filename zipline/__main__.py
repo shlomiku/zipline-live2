@@ -233,9 +233,6 @@ def run(ctx,
     if broker and broker_uri is None:
         ctx.fail("must specify broker-uri if broker is specified")
 
-    if broker and data_frequency != 'minute':
-        ctx.fail("must use '--data-frequency minute' with live trading")
-
     brokerobj = None
     if broker:
         mod_name = 'zipline.gens.brokers.%s_broker' % broker.lower()
