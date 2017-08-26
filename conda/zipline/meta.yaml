@@ -20,12 +20,14 @@ requirements:
     {% for req in data.get('build_requires', []) -%}
     - {{req}}
     {% endfor %}
+    - ibpy2
   run:
     - python
     - libgfortran ==1 # [linux and (np == 19)]
     {% for req in data.get('install_requires', []) -%}
     - {{req}}
     {% endfor %}
+    - ibpy2
 
 test:
   # Python imports
@@ -33,7 +35,7 @@ test:
     - zipline
 
 about:
-  home: https://zipline.io
+  home: http://zipline-live.io
   license: Apache Software License
 
 # See

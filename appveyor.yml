@@ -8,13 +8,13 @@ environment:
     # See: http://stackoverflow.com/a/13751649/163740
     CMD_IN_ENV: "cmd /E:ON /V:ON /C .\\ci\\appveyor\\run_with_env.cmd"
 
-    # 1. Generated a token for appveyor at https://anaconda.org/quantopian/settings/access with scope api:write.
+    # 1. Generated a token for appveyor at https://anaconda.org/zipline-live/settings/access with scope api:write.
     #   Can also be done via anaconda CLI with
     #     $ anaconda auth --create --name my_appveyor_token
     # 2. Generated secure env var below via appveyor's Encrypt data tool at https://ci.appveyor.com/tools/encrypt.
     #   See https://www.appveyor.com/docs/build-configuration/#secure-variables.
     ANACONDA_TOKEN:
-      secure: "mfGCRgiY6D5BmJkH4HFPDJUH+6W9zH0cxKZ5o/cv9grfRkfu5YRG26No88H1q7Ua"
+      secure: "dIq3f7cg5Yqe7d6mClEPhIDWp1jyot5RBcPAOeD0FJsDveLiMJNlKTyVwOpFPjl5"
 
     CONDA_ROOT_PYTHON_VERSION: "2.7"
 
@@ -84,12 +84,12 @@ install:
   - "%CMD_IN_ENV% python .\\ci\\make_conda_packages.py"
 
   # test that we can conda install zipline in a new env
-  - conda create -n installenv --yes -q --use-local python=%PYTHON_VERSION% numpy=%NUMPY_VERSION% zipline -c quantopian -c https://conda.anaconda.org/quantopian/label/ci
+  - conda create -n installenv --yes -q --use-local python=%PYTHON_VERSION% numpy=%NUMPY_VERSION% zipline -c zipline-live -c https://conda.anaconda.org/zipline-live/label/ci
 
   - ps: $env:BCOLZ_VERSION=(sls "bcolz==(.*)" .\etc\requirements.txt -ca).matches.groups[1].value
   - ps: $env:NUMEXPR_VERSION=(sls "numexpr==(.*)" .\etc\requirements.txt -ca).matches.groups[1].value
   - ps: $env:TALIB_VERSION=(sls "TA-Lib==(.*)" .\etc\requirements_talib.txt -ca).matches.groups[1].value
-  - conda create -n testenv --yes -q --use-local pip python=%PYTHON_VERSION% numpy=%NUMPY_VERSION% scipy=%SCIPY_VERSION% ta-lib=%TALIB_VERSION% bcolz=%BCOLZ_VERSION% numexpr=%NUMEXPR_VERSION% -c quantopian -c https://conda.anaconda.org/quantopian/label/ci
+  - conda create -n testenv --yes -q --use-local pip python=%PYTHON_VERSION% numpy=%NUMPY_VERSION% scipy=%SCIPY_VERSION% ta-lib=%TALIB_VERSION% bcolz=%BCOLZ_VERSION% numexpr=%NUMEXPR_VERSION% -c zipline-live -c https://conda.anaconda.org/zipline-live/label/ci
   - activate testenv
   - SET CACHE_DIR=%LOCALAPPDATA%\pip\Cache\pip_np%CONDA_NPY%py%CONDA_PY%
   - pip install -r etc/requirements.txt --cache-dir=%CACHE_DIR%

@@ -31,8 +31,8 @@ def main(env, do_upload):
                "--python", env['CONDA_PY'],
                "--numpy", env['CONDA_NPY'],
                "--skip-existing",
-               "-c", "quantopian/label/ci",
-               "-c", "quantopian"]
+               "-c", "zipline-live/label/ci",
+               "-c", "zipline-live"]
 
         output = None
 
@@ -46,7 +46,7 @@ def main(env, do_upload):
 
         if output and os.path.exists(output) and do_upload:
             cmd = ["anaconda", "-t", env['ANACONDA_TOKEN'],
-                   "upload", output, "-u", "quantopian", "--label", "ci"]
+                   "upload", output, "-u", "zipline-live", "--label", "ci"]
 
             for line in iter_stdout(cmd):
                 print(line)

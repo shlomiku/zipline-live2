@@ -1,0 +1,34 @@
+package:
+  name: ibpy2
+  version: "0.8.0"
+
+source:
+  fn: IbPy2-0.8.0.tar.gz
+  url: https://pypi.python.org/packages/63/75/98a31bebdbd90ef6ca1769d690bbc52c4e2557ea19dcce150c4c8147e02e/IbPy2-0.8.0.tar.gz
+  md5: 2275d9acbce7b065ee42b0b7872902dd
+
+requirements:
+  build:
+    - python
+
+  run:
+    - python
+
+test:
+  # Python imports
+  imports:
+    - ib
+    - ib.ext
+    - ib.lib
+    - ib.opt
+    - ib.sym
+
+about:
+  home: https://github.com/blampe/IbPy
+  license: BSD License
+  summary: 'IbPy - Interactive Brokers Python API'
+  license_family: BSD
+
+# See
+# http://docs.continuum.io/conda/build.html for
+# more information about meta.yaml
