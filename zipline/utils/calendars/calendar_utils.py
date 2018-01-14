@@ -25,6 +25,8 @@ _default_calendar_factories = {
     'us_futures': QuantopianUSFuturesCalendar,
 }
 _default_calendar_aliases = {
+    'SMART': 'NYSE',
+    'ARCA' : 'NYSE',
     'NASDAQ': 'NYSE',
     'BATS': 'NYSE',
     'CBOT': 'CME',
