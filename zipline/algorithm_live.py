@@ -189,6 +189,9 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         tradeable_asset['end_date'] = (pd.Timestamp('now', tz='UTC') +
                                        pd.Timedelta('10000 days'))
         tradeable_asset['auto_close_date'] = tradeable_asset['end_date']
+        # When caling symbol, subscribe to the data to make sure we have the
+        # data available when we call history or current.
+        self.broker.subscribe_to_market_data(asset)
         return asset.from_dict(tradeable_asset)
 
     def run(self, *args, **kwargs):
