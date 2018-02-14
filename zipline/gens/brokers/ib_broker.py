@@ -523,7 +523,7 @@ class IBBroker(Broker):
 		    log.info('Waiting for Asset to be subscribed to data - : '+asset.symbol)
                 sleep(_poll_frequency)
 		counter += 1
-	    if counter >= max_wait :
+	    if counter >= _max_wait_subscribe :
 		log.info('!!!WARNING: I did not manage to subscribe to  '+asset.symbol)
 
     @property
