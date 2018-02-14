@@ -10,7 +10,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from datetime import time
+from datetime import time, timedelta
 import os.path
 import logbook
 import pandas as pd
@@ -29,7 +29,9 @@ from zipline.utils.calendars.trading_calendar import days_at_time
 from zipline.utils.serialization_utils import load_context, store_context
 
 log = logbook.Logger("Live Trading")
-
+# how many minutes before Trading starts needs the function before_trading_starts
+# be launched
+_minutes_before_trading_starts = 45 
 
 class LiveAlgorithmExecutor(AlgorithmSimulator):
     def __init__(self, *args, **kwargs):
@@ -102,14 +104,14 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             self.trading_calendar.execution_time_from_open(market_opens)
         execution_closes = \
             self.trading_calendar.execution_time_from_close(market_closes)
-
-        # FIXME generalize these values
-        before_trading_start_minutes = days_at_time(
-            self.sim_params.sessions,
-            time(8, 45),
-            "US/Eastern"
-        )
-
+            
+        before_trading_start_minutes = ((pd.to_datetime(execution_opens.values)
+                            .tz_localize('UTC')
+                            .tz_convert('US/Eastern')+
+                            timedelta(minutes=-_minutes_before_trading_starts))
+                            .tz_convert('UTC')
+                            )
+        
         return RealtimeClock(
             self.sim_params.sessions,
             execution_opens,
