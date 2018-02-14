@@ -16,7 +16,7 @@ from collections import namedtuple, defaultdict, OrderedDict
 from time import sleep
 from math import fabs
 
-from six import iteritems
+from six import iteritems, itervalues
 import pandas as pd
 import numpy as np
 
@@ -38,7 +38,6 @@ from ib.ext.Contract import Contract
 from ib.ext.Order import Order
 from ib.ext.ExecutionFilter import ExecutionFilter
 from ib.ext.EClientErrors import EClientErrors
-
 from logbook import Logger
 
 if sys.version_info > (3,):
@@ -50,18 +49,25 @@ Position = namedtuple('Position', ['contract', 'position', 'market_price',
                                    'market_value', 'average_cost',
                                    'unrealized_pnl', 'realized_pnl',
                                    'account_name'])
-
+_max_wait_subscribe = 500 # how many cycles to wait
 _connection_timeout = 15  # Seconds
 _poll_frequency = 0.1
 
-
 symbol_to_exchange = defaultdict(lambda: 'SMART')
 symbol_to_exchange['VIX'] = 'CBOE'
+symbol_to_exchange['VIX3M'] = 'CBOE'
+symbol_to_exchange['VXST'] = 'CBOE'
+symbol_to_exchange['VXMT'] = 'CBOE'
+symbol_to_exchange['GVZ'] = 'CBOE'
 symbol_to_exchange['GLD'] = 'ARCA'
 symbol_to_exchange['GDX'] = 'ARCA'
 
 symbol_to_sec_type = defaultdict(lambda: 'STK')
 symbol_to_sec_type['VIX'] = 'IND'
+symbol_to_sec_type['VIX3M'] = 'IND'
+symbol_to_sec_type['VXST'] = 'IND'
+symbol_to_sec_type['VXMT'] = 'IND'
+symbol_to_sec_type['GVZ'] = 'IND'
 
 
 def log_message(message, mapping):
@@ -186,6 +192,7 @@ class TWSConnection(EClientSocket, EWrapper):
         contract.m_secType = symbol_to_sec_type[symbol]
         contract.m_exchange = symbol_to_exchange[symbol]
         contract.m_currency = currency
+
         ticker_id = self.next_ticker_id
 
         self.symbol_to_ticker_id[symbol] = ticker_id
@@ -258,6 +265,7 @@ class TWSConnection(EClientSocket, EWrapper):
                 formatted_basis_points, implied_future, hold_days,
                 future_expiry, dividend_impact, dividends_to_expiry):
         log_message('tickEFP', vars())
+
 
     def updateAccountValue(self, key, value, currency, account_name):
         self.accounts[account_name][currency][key] = value
@@ -396,6 +404,8 @@ class TWSConnection(EClientSocket, EWrapper):
             if not log:
                 log = Logger('IB Broker')
             log.exception(id_)
+            self.unrecoverable_error = True
+            return
 
         if isinstance(error_code, EClientErrors.CodeMsgPair):
             error_msg = error_code.msg()
@@ -500,12 +510,21 @@ class IBBroker(Broker):
 
     def subscribe_to_market_data(self, asset):
         if asset not in self.subscribed_assets:
+            log.debug("Subscribing to market data for {}".format(
+                asset))
+
             # remove str() cast to have a fun debugging journey
             self._tws.subscribe_to_market_data(str(asset.symbol))
             self._subscribed_assets.append(asset)
-
-            while asset.symbol not in self._tws.bars:
+	    counter = 0
+            while asset.symbol not in self._tws.bars and counter < _max_wait_subscribe: # waiting X secs
+		#wait x secs or detect in self tws bars
+                if counter % 10 ==0:
+		    log.info('Waiting for Asset to be subscribed to data - : '+asset.symbol)
                 sleep(_poll_frequency)
+		counter += 1
+	    if counter >= max_wait :
+		log.info('!!!WARNING: I did not manage to subscribe to  '+asset.symbol)
 
     @property
     def positions(self):
@@ -517,6 +536,8 @@ class IBBroker(Broker):
             except SymbolNotFound:
                 # The symbol might not have been ingested to the db therefore
                 # it needs to be skipped.
+
+		log.info('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol ) 
                 continue
             z_position.amount = int(ib_position.position)
             z_position.cost_basis = float(ib_position.average_cost)
@@ -673,11 +694,16 @@ class IBBroker(Broker):
             order.m_orderType = "MKT"
         elif isinstance(style, LimitOrder):
             order.m_orderType = "LMT"
+            order.m_lmtPrice = limit_price
         elif isinstance(style, StopOrder):
             order.m_orderType = "STP"
+            order.m_auxPrice = stop_price
         elif isinstance(style, StopLimitOrder):
             order.m_orderType = "STP LMT"
+            order.m_auxPrice = stop_price
+            order.m_lmtPrice = limit_price
 
+        # TODO: Support GTC orders both here and at blotter_live
         order.m_tif = "DAY"
         order.m_orderRef = self._create_order_ref(order)
 
@@ -807,14 +833,14 @@ class IBBroker(Broker):
                 open_order_state = self._tws.open_orders[ib_order_id]['state']
 
                 zp_status = self._ib_to_zp_status(open_order_state.m_status)
-                if zp_status:
-                    zp_order.status = zp_status
-                else:
+                if zp_status is None:
                     log.warning(
                         "Order-{order_id}: "
                         "unknown order status: {order_status}.".format(
                             order_id=ib_order_id,
                             order_status=open_order_state.m_status))
+                else:
+                    zp_order.status = zp_status
 
             if ib_order_id in self._tws.order_statuses:
                 order_status = self._tws.order_statuses[ib_order_id]
