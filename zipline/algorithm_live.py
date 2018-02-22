@@ -12,9 +12,13 @@
 # limitations under the License.
 from datetime import time
 import os.path
+import copy
+
 import logbook
 import pandas as pd
 
+from zipline.finance.performance import PerformanceTracker
+from zipline.finance.trading import SimulationParameters
 from zipline.finance.blotter_live import BlotterLive
 from zipline.algorithm import TradingAlgorithm
 from zipline.gens.realtimeclock import RealtimeClock
@@ -35,6 +39,14 @@ class LiveAlgorithmExecutor(AlgorithmSimulator):
     def __init__(self, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
 
+    def _cleanup_expired_assets(self, dt, position_assets):
+        # This method is invoked in simulation to clean up assets & orders
+        # which passed auto_close_date. In live trading we allow assets
+        # traded after auto_close_date (which is set to last ingestion + 1d)
+        # for one reason: Not all algorithms use historical data and for those
+        # continuous (daily) ingestion is not needed.
+        pass
+
 
 class LiveTradingAlgorithm(TradingAlgorithm):
     def __init__(self, *args, **kwargs):
@@ -44,6 +56,8 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         self.algo_filename = kwargs.get('algo_filename', "<algorithm>")
         self.state_filename = kwargs.pop('state_filename', None)
         self.realtime_bar_target = kwargs.pop('realtime_bar_target', None)
+        self._context_persistence_blacklist = ['trading_client']
+        self._context_persistence_whitelist = ['initialized', 'perf_tracker']
         self._context_persistence_excludes = []
 
         if 'blotter' not in kwargs:
@@ -57,14 +71,40 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         log.info("initialization done")
 
     def initialize(self, *args, **kwargs):
-        self._context_persistence_excludes = (list(self.__dict__.keys()) +
-                                              ['trading_client'])
+        self._context_persistence_excludes = \
+            self._context_persistence_blacklist + \
+            [e for e in self.__dict__.keys()
+             if e not in self._context_persistence_whitelist]
 
         if os.path.isfile(self.state_filename):
             log.info("Loading state from {}".format(self.state_filename))
+
+            perf_tracker_before_restore = copy.copy(self.perf_tracker)
             load_context(self.state_filename,
                          context=self,
                          checksum=self.algo_filename)
+            perf_tracker_after_restore = self.perf_tracker
+
+            if perf_tracker_after_restore and perf_tracker_before_restore:
+                # Extend yesterday's sim_params and perf_tracker to track
+                # today's session.
+                yesterday = perf_tracker_after_restore
+                today = perf_tracker_before_restore
+
+                self.trading_calendar = today.trading_calendar
+                self.sim_params = SimulationParameters(
+                    start_session=yesterday.sim_params.start_session,
+                    end_session=today.sim_params.end_session,
+                    trading_calendar=self.trading_calendar,
+                    capital_base=yesterday.sim_params.capital_base,
+                    emission_rate=yesterday.sim_params.emission_rate,
+                    data_frequency=yesterday.sim_params.data_frequency,
+                    arena=yesterday.sim_params.arena
+                )
+                self.perf_tracker = yesterday.new_with_params(
+                    self.sim_params, self.trading_environment,
+                    self.trading_calendar, self.data_portal)
+
             return
 
         with ZiplineAPI(self):
@@ -121,12 +161,28 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         )
 
     def _create_generator(self, sim_params):
-        # Call the simulation trading algorithm for side-effects:
-        # it creates the perf tracker
-        TradingAlgorithm._create_generator(self, sim_params)
+        if sim_params is not None:
+            self.sim_params = sim_params
+
+        if self.perf_tracker is None:
+            # HACK: When running with the `run` method, we set perf_tracker to
+            # None so that it will be overwritten here.
+            self.perf_tracker = PerformanceTracker(
+                sim_params=self.sim_params,
+                trading_calendar=self.trading_calendar,
+                env=self.trading_environment,
+            )
+
+            # Set the dt initially to the period start by forcing it to change.
+            self.on_dt_changed(self.sim_params.start_session)
+
+        if not self.initialized:
+            self.initialize(*self.initialize_args, **self.initialize_kwargs)
+            self.initialized = True
+
         self.trading_client = LiveAlgorithmExecutor(
             self,
-            sim_params,
+            self.sim_params,
             self.data_portal,
             self._create_clock(),
             self._create_benchmark_source(),

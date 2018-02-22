@@ -11,7 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from logbook import Logger
-from six import itervalues
+from six import itervalues, iteritems
+
+import pandas as pd
 
 from zipline.finance.blotter import Blotter
 from zipline.utils.input_validation import expect_types
@@ -42,7 +44,13 @@ class BlotterLive(Blotter):
 
     @property
     def orders(self):
-        return self.broker.orders
+        # IB returns orders from previous days too.
+        # Need to filter for today to be in sync with zipline's behavior
+        # TODO: This logic needs to be extended once GTC orders are supported
+        today = pd.to_datetime('now', utc=True).date()
+        return {order_id: order
+                for order_id, order in iteritems(self.broker.orders)
+                if order.dt.date() == today}
 
     @property
     def open_orders(self):
@@ -84,7 +92,10 @@ class BlotterLive(Blotter):
         def _list_delta(lst_a, lst_b):
             return [elem for elem in lst_a if elem not in set(lst_b)]
 
-        all_transactions = list(self.broker.transactions.values())
+        today = pd.to_datetime('now', utc=True).date()
+        all_transactions = [tx
+                            for tx in itervalues(self.broker.transactions)
+                            if tx.dt.date() == today]
         new_transactions = _list_delta(all_transactions,
                                        self._processed_transactions)
         self._processed_transactions = all_transactions

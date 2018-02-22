@@ -81,7 +81,6 @@ class PerformanceTracker(object):
         self.sim_params = sim_params
         self.trading_calendar = trading_calendar
         self.asset_finder = env.asset_finder
-        self.treasury_curves = env.treasury_curves
 
         self.period_start = self.sim_params.start_session
         self.period_end = self.sim_params.end_session
@@ -108,8 +107,7 @@ class PerformanceTracker(object):
             self.cumulative_risk_metrics = \
                 risk.RiskMetricsCumulative(
                     self.sim_params,
-                    self.treasury_curves,
-                    self.trading_calendar
+                    self.trading_calendar,
                 )
         elif self.emission_rate == 'minute':
             self.all_benchmark_returns = pd.Series(index=pd.date_range(
@@ -120,9 +118,8 @@ class PerformanceTracker(object):
             self.cumulative_risk_metrics = \
                 risk.RiskMetricsCumulative(
                     self.sim_params,
-                    self.treasury_curves,
                     self.trading_calendar,
-                    create_first_day_stats=True
+                    create_first_day_stats=True,
                 )
 
         # this performance period will span the entire simulation from
@@ -417,8 +414,17 @@ class PerformanceTracker(object):
         if (next_session is None) or (next_session >= self.last_close):
             return daily_update
 
+        self.move_to_next_day(data_portal)
+
+        return daily_update
+
+    def move_to_next_day(self, data_portal):
         # move the market day markers forward
-        # TODO Is this redundant with next_trading_day above?
+        completed_session = self._current_session
+        next_session = self.trading_calendar.next_session_label(
+            completed_session
+        )
+
         self._current_session = next_session
         self.market_open, self.market_close = \
             self.trading_calendar.open_and_close_for_session(
@@ -435,8 +441,6 @@ class PerformanceTracker(object):
             next_session=next_session,
             adjustment_reader=data_portal._adjustment_reader
         )
-
-        return daily_update
 
     def handle_simulation_end(self):
         """
@@ -466,7 +470,79 @@ class PerformanceTracker(object):
             benchmark_returns=bms,
             algorithm_leverages=acl,
             trading_calendar=self.trading_calendar,
-            treasury_curves=self.treasury_curves,
         )
 
         return risk_report.to_dict()
+
+    def new_with_params(self, sim_params, trading_env,
+                        trading_calendar, data_portal):
+        # Create a new perf_tracker object using the current perf_tracker
+        # instance and the provided simulation parameters.
+        # Required for live trading to create an expanding perf_tracker object
+        # which can grow indefinitely.
+        new_perf_tracker = PerformanceTracker(
+            sim_params, trading_calendar, trading_env)
+        new_perf_tracker.position_tracker = self.position_tracker
+        new_perf_tracker.todays_performance = self.todays_performance
+        new_perf_tracker.cumulative_performance = self.cumulative_performance
+
+        new_crm = new_perf_tracker.cumulative_risk_metrics  # aka current_crm
+        old_crm = self.cumulative_risk_metrics  # aka yesterday_crm
+
+        # Overwrite scalars with the previous values
+        for attr in (
+                'latest_dt', 'latest_dt_loc',
+                'max_drawdown', 'max_leverage',
+                'current_max', 'num_trading_days'):
+            old_fact = getattr(old_crm, attr)
+            setattr(new_crm, attr, old_fact)
+
+        # Collections are copied element-by-element to
+        # retain the size of the new collection
+        for old_loc, old_session in enumerate(old_crm.sessions):
+            if old_session not in new_crm.sessions:
+                continue
+            new_loc = new_crm.sessions.get_loc(old_session)
+
+            for attr in (
+                    'algorithm_returns',
+                    'benchmark_returns',
+                    'mean_returns',
+                    'annualized_mean_returns',
+                    'mean_benchmark_returns',
+                    'algorithm_returns_cont',
+                    'benchmark_returns_cont',
+                    'algorithm_cumulative_leverages_cont',
+                    'mean_returns_cont',
+                    'annualized_mean_returns_cont',
+                    'mean_benchmark_returns_cont',
+                    'annualized_mean_benchmark_returns_cont',
+                    'algorithm_cumulative_returns',
+                    'benchmark_cumulative_returns',
+                    'algorithm_cumulative_leverages',
+                    'excess_returns',
+                    'benchmark_volatility',
+                    'algorithm_volatility',
+                    'beta',
+                    'alpha',
+                    'sharpe',
+                    'downside_risk',
+                    'sortino',
+                    'drawdowns',
+                    'max_drawdowns',
+                    'max_leverages'):
+                old_fact = getattr(old_crm, attr)
+                new_fact = getattr(new_crm, attr)
+                if new_fact is not None and old_fact is not None \
+                   and len(old_fact) > old_loc:
+                    new_fact[new_loc] = old_fact[old_loc]
+
+        new_perf_tracker._current_session = self._current_session
+        new_perf_tracker.session_count = self.session_count
+        new_perf_tracker.txn_count = self.txn_count
+
+        if new_perf_tracker._current_session.date() != \
+           pd.to_datetime('now', utc=True).date():
+            new_perf_tracker.move_to_next_day(data_portal)
+
+        return new_perf_tracker

@@ -1,5 +1,7 @@
 from __future__ import division
 
+from nose.tools import nottest
+
 import numpy as np
 import pandas as pd
 
@@ -34,7 +36,7 @@ class CSVDIRBundleTestCase(ZiplineTestCase):
         def per_symbol(symbol):
             df = pd.read_csv(
                 test_resource_path('csvdir_samples', 'csvdir',
-                                   'daily', symbol + '.csv.gz'),
+                                   'daily', symbol + '.csv'),
                 parse_dates=['date'],
                 index_col='date',
                 usecols=[
@@ -95,6 +97,7 @@ class CSVDIRBundleTestCase(ZiplineTestCase):
 
         return pricing, adjustments
 
+    @nottest
     def test_bundle(self):
         environ = {
             'CSVDIR': test_resource_path('csvdir_samples', 'csvdir')

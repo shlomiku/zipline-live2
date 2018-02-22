@@ -186,6 +186,7 @@ class TWSConnection(EClientSocket, EWrapper):
         contract.m_secType = symbol_to_sec_type[symbol]
         contract.m_exchange = symbol_to_exchange[symbol]
         contract.m_currency = currency
+
         ticker_id = self.next_ticker_id
 
         self.symbol_to_ticker_id[symbol] = ticker_id
@@ -396,6 +397,8 @@ class TWSConnection(EClientSocket, EWrapper):
             if not log:
                 log = Logger('IB Broker')
             log.exception(id_)
+            self.unrecoverable_error = True
+            return
 
         if isinstance(error_code, EClientErrors.CodeMsgPair):
             error_msg = error_code.msg()
@@ -500,12 +503,17 @@ class IBBroker(Broker):
 
     def subscribe_to_market_data(self, asset):
         if asset not in self.subscribed_assets:
+            log.debug("Subscribing to market data for {}".format(
+                asset))
+
             # remove str() cast to have a fun debugging journey
             self._tws.subscribe_to_market_data(str(asset.symbol))
             self._subscribed_assets.append(asset)
 
             while asset.symbol not in self._tws.bars:
                 sleep(_poll_frequency)
+
+            log.debug("Subscription completed")
 
     @property
     def positions(self):
@@ -678,6 +686,7 @@ class IBBroker(Broker):
         elif isinstance(style, StopLimitOrder):
             order.m_orderType = "STP LMT"
 
+        # TODO: Support GTC orders both here and at blotter_live
         order.m_tif = "DAY"
         order.m_orderRef = self._create_order_ref(order)
 
@@ -807,14 +816,14 @@ class IBBroker(Broker):
                 open_order_state = self._tws.open_orders[ib_order_id]['state']
 
                 zp_status = self._ib_to_zp_status(open_order_state.m_status)
-                if zp_status:
-                    zp_order.status = zp_status
-                else:
+                if zp_status is None:
                     log.warning(
                         "Order-{order_id}: "
                         "unknown order status: {order_status}.".format(
                             order_id=ib_order_id,
                             order_status=open_order_state.m_status))
+                else:
+                    zp_order.status = zp_status
 
             if ib_order_id in self._tws.order_statuses:
                 order_status = self._tws.order_statuses[ib_order_id]

@@ -25,6 +25,7 @@ from zipline.errors import NoFurtherDataError
 from zipline.utils.calendars import get_calendar
 
 from .base import PipelineLoader
+from .utils import shift_dates
 
 UINT32_MAX = iinfo(uint32).max
 
@@ -69,7 +70,7 @@ class USEquityPricingLoader(PipelineLoader):
         # be known at the start of each date.  We assume that the latest data
         # known on day N is the data from day (N - 1), so we shift all query
         # dates back by a day.
-        start_date, end_date = _shift_dates(
+        start_date, end_date = shift_dates(
             self._all_sessions, dates[0], dates[-1], shift=1,
         )
         colnames = [c.name for c in columns]
@@ -89,7 +90,6 @@ class USEquityPricingLoader(PipelineLoader):
         for c, c_raw, c_adjs in zip(columns, raw_arrays, adjustments):
             out[c] = AdjustedArray(
                 c_raw.astype(c.dtype),
-                mask,
                 c_adjs,
                 c.missing_value,
             )

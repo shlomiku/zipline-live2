@@ -6,13 +6,13 @@ from datetime import time
 from collections import defaultdict
 
 import pandas as pd
+from pandas import to_datetime as orig_to_datetime
 import numpy as np
 
-# fix to allow zip_longest on Python 2.X and 3.X
-try:                                    # Python 3
-    from itertools import zip_longest
-except ImportError:                     # Python 2
-    from itertools import izip_longest as zip_longest
+try:
+    from itertools import zip_longest  # Py 2
+except ImportError:
+    from itertools import izip_longest as zip_longest  # Py 3
 
 from functools import partial
 
@@ -43,11 +43,13 @@ from zipline.finance.execution import (StopLimitOrder,
                                        MarketOrder,
                                        StopOrder,
                                        LimitOrder)
+from zipline.utils.api_support import ZiplineAPI
 from zipline.finance.order import ORDER_STATUS
 from zipline.finance.transaction import Transaction
 from zipline.utils.calendars import get_calendar
 from zipline.utils.calendars.trading_calendar import days_at_time
 from zipline.utils.serialization_utils import load_context, store_context
+from zipline.utils.factory import create_simulation_parameters
 from zipline.testing.fixtures import (ZiplineTestCase,
                                       WithTradingEnvironment,
                                       WithDataPortal)
@@ -81,8 +83,9 @@ class TestRealtimeClock(TestCase):
     def get_clock(self, arg, *args, **kwargs):
         """Mock function for pandas.to_datetime which is used to query the
         current time in RealtimeClock"""
-        assert arg == "now"
-        return self.internal_clock
+        if arg == "now":
+            return self.internal_clock
+        return orig_to_datetime(arg, *args, **kwargs)
 
     def test_crosscheck_realtimeclock_with_minutesimulationclock(self):
         """Tests that RealtimeClock behaves like MinuteSimulationClock"""
@@ -389,46 +392,102 @@ class TestLiveTradingAlgorithm(WithSimParams,
     SIM_PARAMS_DATA_FREQUENCY = 'minute'
     SIM_PARAMS_EMISSION_RATE = 'minute'
 
-    def test_live_trading_supports_orders_outside_ingested_period(self):
-        def create_initialized_algo(trading_algorithm_class, current_dt):
-            def initialize(context):
-                pass
+    internal_clock = None
 
-            def handle_data(context, data):
-                context.order_value(context.symbol("SPY"), 100)
+    def _create_daily_buyer_algo(self,
+                                 trading_algorithm_class,
+                                 start, end,
+                                 symbol):
+        from zipline.api import get_datetime
 
-            algo = trading_algorithm_class(
-                namespace={},
-                env=self.make_trading_environment(),
-                get_pipeline_loader=self.make_load_function(),
-                sim_params=self.make_simparams(),
-                state_filename='blah',
-                algo_filename='foo',
-                initialize=initialize,
-                handle_data=handle_data,
-                script=None)
+        def initialize(context):
+            context.order_date = None
+            context.asset = context.symbol(symbol)
 
-            algo.initialize()
-            algo.initialized = True  # Normally this is set through algo.run()
-            algo.datetime = current_dt
+        def handle_data(context, data):
+            if not context.order_date or \
+               get_datetime().date() != context.order_date:
+                context.order_value(context.asset, 100)
+                context.order_date = get_datetime().date()
 
-            return algo
+        algo = trading_algorithm_class(
+            namespace={},
+            env=self.make_trading_environment(),
+            get_pipeline_loader=self.make_load_function(),
+            sim_params=create_simulation_parameters(
+                start=start,
+                end=end,
+                capital_base=10000,
+                emission_rate='minute',
+                data_frequency='minute',
+            ),
+            data_portal=self.data_portal,
+            initialize=initialize,
+            handle_data=handle_data,
+            script=None)
 
-        current_dt = self.END_DATE + pd.Timedelta("1 day")
+        return algo
 
-        backtest_algo = create_initialized_algo(TradingAlgorithm, current_dt)
+    @staticmethod
+    def _create_filled_order(id_, dt, asset, amount):
+        return ZPOrder(
+            dt=dt,
+            asset=asset,
+            amount=amount, stop=None, limit=None,
+            filled=amount, commission=0, id=id_)
 
-        with self.assertRaises(CannotOrderDelistedAsset):
-            backtest_algo.handle_data(data=sentinel.data)
+    @staticmethod
+    def _create_tx(order, dt, price):
+        return Transaction(
+            asset=order.asset,
+            amount=order.amount,
+            dt=dt,
+            price=price,
+            order_id=order.id,
+            commission=1)
+
+    @staticmethod
+    def _generate_fake_order_function(broker, order, tx, exec_id):
+        def _order_filler(asset, amount, style):
+            broker.transactions = {exec_id: tx}
+            broker.orders = {order.id: order}
+            return order
+
+        return _order_filler
+
+    @tempdir()
+    def test_live_trading_orders_outside_ingested_period(self, tmpdir):
+        start_date = self.START_DATE
+        end_date = self.END_DATE
+
+        backtest_algo = self._create_daily_buyer_algo(
+            TradingAlgorithm, start_date, end_date,
+            symbol="SPY")
+
+        with ZiplineAPI(backtest_algo):
+            backtest_algo.initialize()
+            backtest_algo.initialized = True
+            backtest_algo.datetime = end_date + pd.Timedelta("2 day")
+            with self.assertRaises(CannotOrderDelistedAsset):
+                backtest_algo.handle_data(sentinel.data)
 
         broker = MagicMock(spec=Broker)
-        live_algo = create_initialized_algo(
-            partial(LiveTradingAlgorithm, broker=broker), current_dt)
+        state_filename = os.path.join(tmpdir.path, "state_file.pickle")
+        live_algo = self._create_daily_buyer_algo(
+            partial(LiveTradingAlgorithm,
+                    broker=broker,
+                    state_filename=state_filename),
+            start_date, end_date, symbol="SPY")
         live_algo.trading_client = MagicMock(spec=LiveAlgorithmExecutor)
         live_algo.trading_client.current_data = Mock()
         live_algo.trading_client.current_data.current.return_value = 12
 
-        live_algo.handle_data(data=sentinel.data)
+        with ZiplineAPI(backtest_algo):
+            live_algo.initialize()
+            live_algo.initialized = True
+            live_algo.datetime = end_date + pd.Timedelta("2 day")
+            live_algo.handle_data(sentinel.data)
+
         assert live_algo.broker.order.called
         assert live_algo.trading_client.current_data.current.called
 
@@ -488,6 +547,197 @@ class TestLiveTradingAlgorithm(WithSimParams,
         expected_bars = rt_bars[-bar_count:].swaplevel(0, 1, axis=1)['close']
         assert len(combined_data) == bar_count
         assert expected_bars.isin(combined_data).all().all()
+
+    def advance_clock(self, x):
+        """Mock function for sleep. Advances the internal clock by 1 min"""
+        # The internal clock advance time must be 1 minute to match
+        # MinutesSimulationClock's update frequency
+        self.internal_clock += pd.Timedelta('1 min')
+
+    def get_clock(self, arg, *args, **kwargs):
+        """Mock function for pandas.to_datetime which is used to query the
+        current time in RealtimeClock"""
+        if arg == "now":
+            return self.internal_clock
+        return orig_to_datetime(arg, *args, **kwargs)
+
+    @tempdir()
+    def test_perf_tracker_extended_between_sessions(self, tmpdir):
+        def _validate_perf_tracker(pt, expected_start_date, expected_end_date,
+                                   expected_session_count, expected_txn_count,
+                                   expected_positions,
+                                   expected_todays_orders,
+                                   expected_todays_transactions):
+            # perf_tracker top level
+            assert pt.period_start.date() == expected_start_date
+            assert pt.period_end.date() == expected_end_date
+            assert pt.last_close.date() == expected_end_date
+            # assert perf_tracker.market_open.date() == ??
+            assert pt.market_close.date() == expected_end_date
+            assert pt.total_session_count == expected_session_count
+            assert pt.txn_count == expected_txn_count
+
+            # sim_params
+            assert pt.sim_params.first_open.date() == expected_start_date
+            assert pt.sim_params.last_close.date() == expected_end_date
+            assert pt.sim_params.start_session.date() == expected_start_date
+            assert pt.sim_params.end_session.date() == expected_end_date
+            assert len(pt.sim_params.sessions) == expected_session_count
+
+            # positions
+            assert pt.position_tracker == \
+                pt.todays_performance.position_tracker
+            assert pt.position_tracker == \
+                pt.cumulative_performance.position_tracker
+            assert len(expected_positions) == \
+                len(pt.position_tracker.positions)
+            assert all([e in pt.position_tracker.positions
+                        for e in expected_positions])
+
+            # todays_performance
+            assert len(expected_todays_orders) == \
+                len(pt.todays_performance.orders_by_id)
+            assert all([e in pt.todays_performance.orders_by_id
+                        for e in expected_todays_orders])
+            assert len(expected_todays_transactions) == \
+                len(pt.todays_performance.processed_transactions)
+            assert all([e in pt.todays_performance.processed_transactions
+                        for e in expected_todays_transactions])
+            # Should not span over multiple days
+            assert pt.todays_performance.period_open.date() == \
+                expected_end_date
+            assert pt.todays_performance.period_close.date() == \
+                expected_end_date
+
+            # cumulative_performance
+            assert pt.cumulative_performance.period_open.date() == \
+                expected_start_date
+            assert pt.todays_performance.period_close.date() == \
+                expected_end_date
+
+            # FIXME: cumulative_risk_report is currently not supported
+            # cumulative_risk_metrics = pt.cumulative_risk_metrics
+            # assert cumulative_risk_metrics.cont_len == \
+            #     expected_session_count
+            # assert len(cumulative_risk_metrics.sessions) == \
+            #     expected_session_count
+            # assert len(cumulative_risk_metrics.algorithm_returns_cont) == \
+            #     expected_session_count
+            # assert cumulative_risk_metrics.sessions[0].date() == \
+            #     expected_start_date
+            # assert cumulative_risk_metrics.sessions[-1].date() == \
+            #     expected_end_date
+            # assert cumulative_risk_metrics.start_session.date() == \
+            #     expected_start_date
+            # assert cumulative_risk_metrics.end_session.date() == \
+            #     expected_end_date
+
+        with patch('zipline.gens.realtimeclock.pd.to_datetime') as to_dt, \
+                patch('zipline.gens.realtimeclock.sleep') as sleep, \
+                patch('zipline.data.data_portal.DataPortal') as dp:
+            to_dt.side_effect = self.get_clock
+            sleep.side_effect = self.advance_clock
+            broker = MagicMock(spec=Broker)
+            broker.time_skew = pd.Timedelta("0s")
+            asset_1 = self.asset_finder.retrieve_asset(1)
+            asset_2 = self.asset_finder.retrieve_asset(2)
+            state_filename = os.path.join(tmpdir.path, "state_file.pickle")
+
+            # Start 15 minutes prior market close to reduce run time
+            start_dt = pd.Timestamp("2017-08-21 19:45", tz='UTC')
+            end_dt = pd.Timestamp("2017-08-21 23:59", tz='UTC')
+            self.internal_clock = initial_start_dt = start_dt
+
+            dp.get_spot_value.return_value = 123
+
+            # Day 1: one filled order
+            order_1 = self._create_filled_order(
+                id_=1, dt=start_dt + pd.Timedelta("1 min"),
+                asset=asset_1, amount=12)
+            tx_1 = self._create_tx(
+                order_1, dt=start_dt + pd.Timedelta("2 min"),
+                price=113)
+            broker.order.side_effect = self._generate_fake_order_function(
+                broker, order_1, tx_1, 'exec_1')
+
+            live_algo = self._create_daily_buyer_algo(
+                partial(LiveTradingAlgorithm,
+                        broker=broker, state_filename=state_filename),
+                start=start_dt, end=end_dt, symbol=str(asset_1.symbol))
+            live_algo.run()
+
+            _validate_perf_tracker(live_algo.perf_tracker,
+                                   expected_start_date=initial_start_dt.date(),
+                                   expected_end_date=end_dt.date(),
+                                   expected_session_count=1,
+                                   expected_txn_count=1,
+                                   expected_positions=[asset_1],
+                                   expected_todays_orders=[order_1.id],
+                                   expected_todays_transactions=[tx_1.dt])
+            assert os.path.exists(state_filename)
+
+            # Day 2: Second filled order:
+            # two transactions should be present in perf_tracker
+            start_dt = pd.Timestamp("2017-08-22 19:45", tz='UTC')
+            end_dt = pd.Timestamp("2017-08-22 23:59", tz='UTC')
+            self.internal_clock = start_dt
+            broker.transactions = {}
+            broker.orders = {}
+
+            order_2 = self._create_filled_order(
+                id_=2, dt=start_dt + pd.Timedelta("1 min"),
+                asset=asset_2,
+                amount=22)
+            tx_2 = self._create_tx(
+                order_2, dt=start_dt + pd.Timedelta("2 min"),
+                price=140)
+            broker.order.side_effect = self._generate_fake_order_function(
+                broker, order_2, tx_2, 'exec_2')
+
+            live_algo = self._create_daily_buyer_algo(
+                partial(LiveTradingAlgorithm,
+                        broker=broker, state_filename=state_filename),
+                start=start_dt, end=end_dt, symbol=str(asset_2.symbol))
+            live_algo.run()
+
+            _validate_perf_tracker(live_algo.perf_tracker,
+                                   expected_start_date=initial_start_dt.date(),
+                                   expected_end_date=end_dt.date(),
+                                   expected_session_count=2,
+                                   expected_txn_count=2,
+                                   expected_positions=[asset_1, asset_2],
+                                   expected_todays_orders=[order_2.id],
+                                   expected_todays_transactions=[tx_2.dt])
+
+            # Day 3: Fill first days order
+            start_dt = pd.Timestamp("2017-08-23 19:45", tz='UTC')
+            end_dt = pd.Timestamp("2017-08-23 23:59", tz='UTC')
+            self.internal_clock = start_dt
+            broker.transactions = {}
+            broker.orders = {}
+
+            order_3 = self._create_filled_order(
+                id_=3, dt=start_dt + pd.Timedelta("1 min"),
+                asset=asset_1, amount=-1 * order_1.amount)
+            tx_3 = self._create_tx(
+                order_3, dt=start_dt + pd.Timedelta("2 min"), price=19)
+            broker.order.side_effect = self._generate_fake_order_function(
+                broker, order_3, tx_3, 'exec_3')
+
+            live_algo = self._create_daily_buyer_algo(
+                partial(LiveTradingAlgorithm,
+                        broker=broker, state_filename=state_filename),
+                start=start_dt, end=end_dt, symbol=str(asset_1.symbol))
+            live_algo.run()
+
+            _validate_perf_tracker(live_algo.perf_tracker,
+                                   expected_start_date=initial_start_dt.date(),
+                                   expected_end_date=end_dt.date(),
+                                   expected_session_count=3,
+                                   expected_txn_count=3,
+                                   expected_positions=[asset_2],
+                                   expected_todays_orders=[order_3.id],
+                                   expected_todays_transactions=[tx_3.dt])
 
 
 class TestIBBroker(WithSimParams, ZiplineTestCase):
@@ -925,18 +1175,22 @@ class TestBlotterLive(WithTradingEnvironment, ZiplineTestCase):
     def _get_orders(asset1, asset2):
         return {
             sentinel.order_id1: ZPOrder(
-                dt=sentinel.dt, asset=asset1, amount=12,
+                dt=pd.to_datetime('now', utc=True),
+                asset=asset1, amount=12,
                 stop=sentinel.stop1, limit=sentinel.limit1,
                 id=sentinel.order_id1),
             sentinel.order_id2: ZPOrder(
-                dt=sentinel.dt, asset=asset1, amount=-12,
+                dt=pd.to_datetime('now', utc=True),
+                asset=asset1, amount=-12,
                 limit=sentinel.limit2, id=sentinel.order_id2),
             sentinel.order_id3: ZPOrder(
-                dt=sentinel.dt, asset=asset2, amount=3,
+                dt=pd.to_datetime('now', utc=True),
+                asset=asset2, amount=3,
                 stop=sentinel.stop2, limit=sentinel.limit2,
                 id=sentinel.order_id3),
             sentinel.order_id4: ZPOrder(
-                dt=sentinel.dt, asset=asset2, amount=-122,
+                dt=pd.to_datetime('now', utc=True),
+                asset=asset2, amount=-122,
                 id=sentinel.order_id4),
         }
 

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from six import BytesIO
-import pickle
+import dill as pickle
 from functools import partial
 
 from zipline.assets import AssetFinder

@@ -39,6 +39,8 @@ from zipline.utils.input_validation import (
     preprocess,
 )
 from zipline.utils.memoize import lazyval
+from zipline.utils.pandas_utils import days_at_time
+
 
 start_default = pd.Timestamp('1990-01-01', tz='UTC')
 end_base = pd.Timestamp('today', tz='UTC')

@@ -49,10 +49,23 @@ class RealtimeClock(object):
                  minute_emission,
                  time_skew=pd.Timedelta("0s"),
                  is_broker_alive=None):
-        self.sessions = sessions
-        self.execution_opens = execution_opens
-        self.execution_closes = execution_closes
-        self.before_trading_start_minutes = before_trading_start_minutes
+        today = pd.to_datetime('now', utc=True).date()
+        beginning_of_today = pd.to_datetime(today, utc=True)
+        beginning_of_tomorrow = beginning_of_today + pd.Timedelta('1 day')
+        self.sessions = \
+            sessions[(beginning_of_today <= sessions) &
+                     (sessions < beginning_of_tomorrow)]
+        self.execution_opens = \
+            execution_opens[(beginning_of_today <= execution_opens) &
+                            (execution_opens < beginning_of_tomorrow)]
+        self.execution_closes = \
+            execution_closes[(beginning_of_today <= execution_closes) &
+                             (execution_closes < beginning_of_tomorrow)]
+        self.before_trading_start_minutes = \
+            before_trading_start_minutes[
+                (beginning_of_today <= before_trading_start_minutes) &
+                (before_trading_start_minutes < beginning_of_tomorrow)]
+
         self.minute_emission = minute_emission
         self.time_skew = time_skew
         self.is_broker_alive = is_broker_alive or (lambda: True)
@@ -60,7 +73,10 @@ class RealtimeClock(object):
         self._before_trading_start_bar_yielded = False
 
     def __iter__(self):
-        yield self.sessions[0], SESSION_START
+        if not len(self.sessions):
+            return
+
+        yield self.sessions[-1], SESSION_START
 
         while self.is_broker_alive():
             current_time = pd.to_datetime('now', utc=True)
@@ -71,10 +87,10 @@ class RealtimeClock(object):
                 self._last_emit = server_time
                 self._before_trading_start_bar_yielded = True
                 yield server_time, BEFORE_TRADING_START_BAR
-            elif server_time < self.execution_opens[0].tz_localize('UTC'):
+            elif server_time < self.execution_opens[-1].tz_localize('UTC'):
                 sleep(1)
-            elif (self.execution_opens[0].tz_localize('UTC') <= server_time <
-                  self.execution_closes[0].tz_localize('UTC')):
+            elif (self.execution_opens[-1].tz_localize('UTC') <= server_time <
+                  self.execution_closes[-1].tz_localize('UTC')):
                 if (self._last_emit is None or
                         server_time - self._last_emit >=
                         pd.Timedelta('1 minute')):
@@ -84,7 +100,7 @@ class RealtimeClock(object):
                         yield server_time, MINUTE_END
                 else:
                     sleep(1)
-            elif server_time == self.execution_closes[0].tz_localize('UTC'):
+            elif server_time == self.execution_closes[-1].tz_localize('UTC'):
                 self._last_emit = server_time
                 yield server_time, BAR
                 if self.minute_emission:
@@ -92,9 +108,11 @@ class RealtimeClock(object):
                 yield server_time, SESSION_END
 
                 return
-            elif server_time > self.execution_closes[0].tz_localize('UTC'):
+            elif server_time > self.execution_closes[-1].tz_localize('UTC'):
                 # Return with no yield if the algo is started in after hours
                 return
             else:
                 # We should never end up in this branch
                 raise RuntimeError("Invalid state in RealtimeClock")
+        else:
+            raise RuntimeError("Broker encountered an unrecoverable error")

@@ -42,10 +42,11 @@ class Broker(object):
         pass
 
     @abstractmethod
-    def order(self, asset, amount, style):
+    def is_alive(self):
         pass
 
-    def is_alive(self):
+    @abstractmethod
+    def order(self, asset, amount, style):
         pass
 
     @abstractproperty

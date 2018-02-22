@@ -1,6 +1,5 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from contextlib import contextmanager
-from functools import wraps
 import gzip
 from inspect import getargspec
 from itertools import (
@@ -28,6 +27,7 @@ from toolz import concat, curry
 
 from zipline.assets import AssetFinder, AssetDBWriter
 from zipline.assets.synthetic import make_simple_equity_info
+from zipline.utils.compat import wraps
 from zipline.data.data_portal import DataPortal
 from zipline.data.loader import get_benchmark_filename, INDEX_MAPPING
 from zipline.data.minute_bars import (
@@ -285,8 +285,8 @@ def chrange(start, stop):
     chars: iterable[str]
         Iterable of strings beginning with start and ending with stop.
 
-    Example
-    -------
+    Examples
+    --------
     >>> chrange('A', 'C')
     ['A', 'B', 'C']
     """
@@ -1106,8 +1106,8 @@ def parameter_space(__fail_fast=False, **params):
     The decorated test function will be called with the cross-product of all
     possible inputs
 
-    Usage
-    -----
+    Examples
+    --------
     >>> from unittest import TestCase
     >>> class SomeTestCase(TestCase):
     ...     @parameter_space(x=[1, 2], y=[2, 3])

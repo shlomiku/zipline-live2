@@ -16,9 +16,10 @@ requests-file==1.4.1
 
 # scipy and pandas are required for statsmodels,
 # statsmodels in turn is required for some pandas packages
-scipy==0.17.1
+scipy==0.19.0
 pandas==0.18.1
-pandas-datareader==0.2.1
+pandas-datareader==0.5.0
+
 # Needed for parts of pandas.stats
 patsy==0.4.0
 statsmodels==0.6.1
@@ -77,3 +78,7 @@ lru-dict==1.1.4
 empyrical==0.2.2
 
 tables==3.3.0
+
+retry==0.9.2
+
+dill==0.2.7.1

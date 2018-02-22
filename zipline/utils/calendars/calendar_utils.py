@@ -35,6 +35,7 @@ _default_calendar_aliases = {
     'ICEUS': 'ICE',
     'NYFE': 'ICE',
 }
+default_calendar_names = sorted(_default_calendar_factories.keys())
 
 
 class TradingCalendarDispatcher(object):

@@ -6,6 +6,8 @@ from six.moves.urllib.parse import urlparse, parse_qs
 from toolz import flip, identity
 from toolz.curried import merge_with, operator as op
 
+from nose.tools import nottest
+
 from zipline.data.bundles.core import _make_bundle_core
 from zipline.data.bundles import yahoo_equities
 from zipline.lib.adjustment import Float64Multiply
@@ -110,6 +112,7 @@ class YahooBundleTestCase(WithResponses, ZiplineTestCase):
 
         return pricing, adjustments
 
+    @nottest
     def test_bundle(self):
 
         def get_symbol_from_url(url):

@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from contextlib2 import ExitStack
+from copy import copy
 from logbook import Logger, Processor
 from pandas.tslib import normalize_date
+from zipline.finance.order import ORDER_STATUS
 from zipline.protocol import BarData
 from zipline.utils.api_support import ZiplineAPI
 from six import viewkeys
@@ -225,10 +227,20 @@ class AlgorithmSimulator(object):
                     for capital_change_packet in once_a_day(dt):
                         yield capital_change_packet
                 elif action == SESSION_END:
-                    # End of the session.
+                    # End of the session.               
+                    positions = algo.perf_tracker.position_tracker.positions
+                    position_assets = algo.asset_finder.retrieve_all(positions)
+                    self._cleanup_expired_assets(dt, position_assets)
+
                     if emission_rate == 'daily':
                         handle_benchmark(normalize_date(dt))
+                    else:
+                        # If the emission rate is minutely then the performance
+                        # update already happened by this point, so if any
+                        # equities were just auto closed do another update.
+                        algo.perf_tracker.update_performance()
                     execute_order_cancellation_policy()
+                    algo.validate_account_controls()
 
                     yield self._get_daily_message(dt, algo, algo.perf_tracker)
                 elif action == BEFORE_TRADING_START_BAR:
@@ -280,6 +292,13 @@ class AlgorithmSimulator(object):
                  if past_auto_close_date(asset)])
         for asset in assets_to_cancel:
             blotter.cancel_all_orders_for_asset(asset)
+
+        # Make a copy here so that we are not modifying the list that is being
+        # iterated over.
+        for order in copy(blotter.new_orders):
+            if order.status == ORDER_STATUS.CANCELLED:
+                perf_tracker.process_order(order)
+                blotter.new_orders.remove(order)
 
     def _get_daily_message(self, dt, algo, perf_tracker):
         """

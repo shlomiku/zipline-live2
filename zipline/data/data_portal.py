@@ -922,7 +922,7 @@ class DataPortal(object):
             raise ValueError("Invalid frequency: {0}".format(frequency))
 
         # forward-fill price
-        if ffill and field == "price":
+        if field == "price":
             if frequency == "1m":
                 data_frequency = 'minute'
             elif frequency == "1d":
@@ -1374,7 +1374,9 @@ class DataPortal(object):
         Retrieves the future chain for the contract at the given `dt` according
         the `continuous_future` specification.
 
-        Returns:
+        Returns
+        -------
+
         future_chain : list[Future]
             A list of active futures, where the first index is the current
             contract specified by the continuous future definition, the second
