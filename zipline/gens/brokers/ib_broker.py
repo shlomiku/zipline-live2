@@ -16,7 +16,7 @@ from collections import namedtuple, defaultdict, OrderedDict
 from time import sleep
 from math import fabs
 
-from six import iteritems
+from six import iteritems, itervalues
 import pandas as pd
 import numpy as np
 
@@ -38,7 +38,6 @@ from ib.ext.Contract import Contract
 from ib.ext.Order import Order
 from ib.ext.ExecutionFilter import ExecutionFilter
 from ib.ext.EClientErrors import EClientErrors
-
 from logbook import Logger
 
 if sys.version_info > (3,):
@@ -50,18 +49,25 @@ Position = namedtuple('Position', ['contract', 'position', 'market_price',
                                    'market_value', 'average_cost',
                                    'unrealized_pnl', 'realized_pnl',
                                    'account_name'])
-
+_max_wait_subscribe = 500 # how many cycles to wait
 _connection_timeout = 15  # Seconds
 _poll_frequency = 0.1
 
-
 symbol_to_exchange = defaultdict(lambda: 'SMART')
 symbol_to_exchange['VIX'] = 'CBOE'
+symbol_to_exchange['VIX3M'] = 'CBOE'
+symbol_to_exchange['VXST'] = 'CBOE'
+symbol_to_exchange['VXMT'] = 'CBOE'
+symbol_to_exchange['GVZ'] = 'CBOE'
 symbol_to_exchange['GLD'] = 'ARCA'
 symbol_to_exchange['GDX'] = 'ARCA'
 
 symbol_to_sec_type = defaultdict(lambda: 'STK')
 symbol_to_sec_type['VIX'] = 'IND'
+symbol_to_sec_type['VIX3M'] = 'IND'
+symbol_to_sec_type['VXST'] = 'IND'
+symbol_to_sec_type['VXMT'] = 'IND'
+symbol_to_sec_type['GVZ'] = 'IND'
 
 
 def log_message(message, mapping):
@@ -509,11 +515,14 @@ class IBBroker(Broker):
             # remove str() cast to have a fun debugging journey
             self._tws.subscribe_to_market_data(str(asset.symbol))
             self._subscribed_assets.append(asset)
-
-            while asset.symbol not in self._tws.bars:
+	    counter = 0
+            while asset.symbol not in self._tws.bars and counter < _max_wait_subscribe: # waiting X secs:
                 sleep(_poll_frequency)
-
-            log.debug("Subscription completed")
+		counter += 1
+	    if counter >= _max_wait_subscribe :
+		log.debug('!!!WARNING: I did not manage to subscribe to % ' % asset.symbol)
+	    else:
+            	log.debug("Subscription completed")
 
     @property
     def positions(self):
@@ -525,6 +534,8 @@ class IBBroker(Broker):
             except SymbolNotFound:
                 # The symbol might not have been ingested to the db therefore
                 # it needs to be skipped.
+
+		log.debug('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol ) 
                 continue
             z_position.amount = int(ib_position.position)
             z_position.cost_basis = float(ib_position.average_cost)
@@ -681,10 +692,14 @@ class IBBroker(Broker):
             order.m_orderType = "MKT"
         elif isinstance(style, LimitOrder):
             order.m_orderType = "LMT"
+            order.m_lmtPrice = limit_price
         elif isinstance(style, StopOrder):
             order.m_orderType = "STP"
+            order.m_auxPrice = stop_price
         elif isinstance(style, StopLimitOrder):
             order.m_orderType = "STP LMT"
+            order.m_auxPrice = stop_price
+            order.m_lmtPrice = limit_price
 
         # TODO: Support GTC orders both here and at blotter_live
         order.m_tif = "DAY"

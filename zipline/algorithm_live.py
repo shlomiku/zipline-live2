@@ -143,12 +143,12 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         execution_closes = \
             self.trading_calendar.execution_time_from_close(market_closes)
 
-        # FIXME generalize these values
-        before_trading_start_minutes = days_at_time(
-            self.sim_params.sessions,
-            time(8, 45),
-            "US/Eastern"
-        )
+        before_trading_start_minutes = ((pd.to_datetime(execution_opens.values)
+            .tz_localize('UTC')
+            .tz_convert('US/Eastern')+
+            timedelta(minutes=-_minutes_before_trading_starts))
+            .tz_convert('UTC')
+            )
 
         return RealtimeClock(
             self.sim_params.sessions,
@@ -245,6 +245,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         tradeable_asset['end_date'] = (pd.Timestamp('now', tz='UTC') +
                                        pd.Timedelta('10000 days'))
         tradeable_asset['auto_close_date'] = tradeable_asset['end_date']
+        self.broker.subscribe_to_market_data(asset)
         return asset.from_dict(tradeable_asset)
 
     def run(self, *args, **kwargs):
