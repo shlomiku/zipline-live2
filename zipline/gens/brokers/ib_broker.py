@@ -520,7 +520,7 @@ class IBBroker(Broker):
                 sleep(_poll_frequency)
 		counter += 1
 	    if counter >= _max_wait_subscribe :
-		log.debug('!!!WARNING: I did not manage to subscribe to % ' % asset.symbol)
+		log.debug('!!!WARNING: I did not manage to subscribe to %s ' % asset.symbol)
 	    else:
             	log.debug("Subscription completed")
 
