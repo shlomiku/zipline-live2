@@ -199,7 +199,8 @@ class TWSConnection(EClientSocket, EWrapper):
         self.ticker_id_to_symbol[ticker_id] = symbol
 
         tick_list = "233"  # RTVolume, return tick_type == 48
-        self.reqMktData(ticker_id, contract, tick_list, False)
+        #self.reqMktData(ticker_id, contract, tick_list, False)
+        self.reqRealTimeBars( ticker_id, contract, 60, 'TRADES', True)
 
     def _process_tick(self, ticker_id, tick_type, value):
         try:
@@ -465,9 +466,13 @@ class TWSConnection(EClientSocket, EWrapper):
     def marketDataType(self, req_id, market_data_type):
         log_message('marketDataType', vars())
 
-    def realtimeBar(self, req_id, time, open_, high, low, close, volume, wap,
+    def realtimeBar(self, req_id, time, open, high, low, close, volume, wap,
                     count):
-        log_message('realtimeBar', vars())
+	# Last trade price; Last trade size;Last trade time;Total volume;\
+        # VWAP;Single trade flag
+        # e.g.: 701.28;1;1348075471534;67854;701.46918464;true
+	value = (";".join([str(close), str(count), str(time), str(volume),str(wap),"true"]))
+	self._process_tick(req_id, tick_type=48, value=value)
 
     def scannerDataEnd(self, req_id):
         log_message('scannerDataEnd', vars())
@@ -613,7 +618,7 @@ class IBBroker(Broker):
 
     @property
     def time_skew(self):
-        return self._tws.time_skew
+	return self._tws.time_skew
 
     def is_alive(self):
         return not self._tws.unrecoverable_error
@@ -692,14 +697,10 @@ class IBBroker(Broker):
             order.m_orderType = "MKT"
         elif isinstance(style, LimitOrder):
             order.m_orderType = "LMT"
-            order.m_lmtPrice = limit_price
         elif isinstance(style, StopOrder):
             order.m_orderType = "STP"
-            order.m_auxPrice = stop_price
         elif isinstance(style, StopLimitOrder):
             order.m_orderType = "STP LMT"
-            order.m_auxPrice = stop_price
-            order.m_lmtPrice = limit_price
 
         # TODO: Support GTC orders both here and at blotter_live
         order.m_tif = "DAY"
