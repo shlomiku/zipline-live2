@@ -26,7 +26,7 @@ _default_calendar_factories = {
 }
 _default_calendar_aliases = {
     'SMART': 'NYSE',
-    'ARCA' : 'NYSE',
+    'ARCA': 'NYSE',
     'NASDAQ': 'NYSE',
     'BATS': 'NYSE',
     'CBOT': 'CME',
