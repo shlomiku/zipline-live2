@@ -12,29 +12,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
+import pandas as pd
+import requests
 
-from zipline.utils.calendars import get_calendar
-import pandas_datareader.data as web
 
-
-def get_benchmark_returns(symbol, start_date, end_date):
+def get_benchmark_returns(symbol):
     """
-    Get a Series of benchmark returns from Google finance.
+    Get a Series of benchmark returns from IEX associated with `symbol`.
+    Default is `SPY`.
 
-    Returns a Series with returns from (start_date, end_date].
+    Parameters
+    ----------
+    symbol : str
+        Benchmark symbol for which we're getting the returns.
 
-    start_date is **not** included because we need the close from day N - 1 to
-    compute the returns for day N.
+    The data is provided by IEX (https://iextrading.com/), and we can
+    get up to 5 years worth of data.
     """
-    df = web.DataReader(symbol, 'google', start_date, end_date)
-    df.index = df.index.tz_localize('UTC')
+    r = requests.get(
+        'https://api.iextrading.com/1.0/stock/{}/chart/5y'.format(symbol)
+    )
+    data = json.loads(r.text)
 
-    calendar = get_calendar("NYSE")
-    start_index = calendar.all_sessions.searchsorted(start_date)
-    end_index = calendar.all_sessions.searchsorted(end_date)
+    df = pd.DataFrame(data)
 
-    # fill price data for missing dates
-    df = df["Close"].reindex(calendar.all_sessions[start_index:end_index],
-                             method='ffill')
+    df.index = pd.DatetimeIndex(df['date'])
+    df = df['close']
 
-    return df.pct_change(1).iloc[1:]
+    return df.sort_index().tz_localize('UTC').pct_change(1).iloc[1:]

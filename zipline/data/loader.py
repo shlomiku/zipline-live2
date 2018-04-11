@@ -28,7 +28,6 @@ from ..utils.paths import (
     cache_root,
     data_root,
 )
-from ..utils.deprecate import deprecated
 from zipline.utils.calendars import get_calendar
 
 logger = logbook.Logger('Loader')
@@ -97,7 +96,7 @@ def load_market_data(trading_day=None, trading_days=None, bm_symbol='SPY',
     Load benchmark returns and treasury yield curves for the given calendar and
     benchmark symbol.
 
-    Benchmarks are downloaded as a Series from Yahoo Finance.  Treasury curves
+    Benchmarks are downloaded as a Series from IEX Trading.  Treasury curves
     are US Treasury Bond rates and are downloaded from 'www.federalreserve.gov'
     by default.  For Canadian exchanges, a loader for Canadian bonds from the
     Bank of Canada is also available.
@@ -115,8 +114,8 @@ def load_market_data(trading_day=None, trading_days=None, bm_symbol='SPY',
         A calendar of trading days.  Also used for determining what cached
         dates we should expect to have cached. Defaults to the NYSE calendar.
     bm_symbol : str, optional
-        Symbol for the benchmark index to load.  Defaults to 'SPY', the Google
-        ticker for the SPDR S&P 500 ETF.
+        Symbol for the benchmark index to load. Defaults to 'SPY', the ticker
+        for the S&P 500, provided by IEX Trading.
 
     Returns
     -------
@@ -201,11 +200,6 @@ def ensure_benchmark_data(symbol, first_date, last_date, now, trading_day,
     We attempt to download data unless we already have data stored at the data
     cache for `symbol` whose first entry is before or on `first_date` and whose
     last entry is on or after `last_date`.
-
-    If we perform a download and the cache criteria are not satisfied, we wait
-    at least one hour before attempting a redownload.  This is determined by
-    comparing the current time to the result of os.path.getmtime on the cache
-    path.
     """
     filename = get_benchmark_filename(symbol)
     data = _load_cached_data(filename, first_date, last_date, now, 'benchmark',
@@ -218,11 +212,7 @@ def ensure_benchmark_data(symbol, first_date, last_date, now, trading_day,
     logger.info('Downloading benchmark data for {symbol!r}.', symbol=symbol)
 
     try:
-        data = get_benchmark_returns(
-            symbol,
-            first_date - trading_day,
-            last_date,
-        )
+        data = get_benchmark_returns(symbol)
         data.to_csv(get_data_filepath(filename, environ))
     except (OSError, IOError, HTTPError):
         logger.exception('failed to cache the new benchmark returns')
@@ -416,59 +406,6 @@ def load_from_yahoo(indexes=None,
     df = pd.DataFrame({key: d[close_key] for key, d in iteritems(data)})
     df.index = df.index.tz_localize(pytz.utc)
     return df
-
-
-@deprecated(
-    'load_bars_from_yahoo is deprecated, please register a'
-    ' yahoo_equities data bundle instead',
-)
-def load_bars_from_yahoo(indexes=None,
-                         stocks=None,
-                         start=None,
-                         end=None,
-                         adjusted=True):
-    """
-    Loads data from Yahoo into a panel with the following
-    column names for each indicated security:
-
-        - open
-        - high
-        - low
-        - close
-        - volume
-        - price
-
-    Note that 'price' is Yahoo's 'Adjusted Close', which removes the
-    impact of splits and dividends. If the argument 'adjusted' is True, then
-    the open, high, low, and close values are adjusted as well.
-
-    :param indexes: Financial indexes to load.
-    :type indexes: dict
-    :param stocks: Stock closing prices to load.
-    :type stocks: list
-    :param start: Retrieve prices from start date on.
-    :type start: datetime
-    :param end: Retrieve prices until end date.
-    :type end: datetime
-    :param adjusted: Adjust open/high/low/close for splits and dividends.
-        The 'price' field is always adjusted.
-    :type adjusted: bool
-
-    """
-    data = _load_raw_yahoo_data(indexes, stocks, start, end)
-    panel = pd.Panel(data)
-    # Rename columns
-    panel.minor_axis = ['open', 'high', 'low', 'close', 'volume', 'price']
-    panel.major_axis = panel.major_axis.tz_localize(pytz.utc)
-    # Adjust data
-    if adjusted:
-        adj_cols = ['open', 'high', 'low', 'close']
-        for ticker in panel.items:
-            ratio = (panel[ticker]['price'] / panel[ticker]['close'])
-            ratio_filtered = ratio.fillna(0).values
-            for col in adj_cols:
-                panel[ticker][col] *= ratio_filtered
-    return panel
 
 
 def load_prices_from_csv(filepath, identifier_col, tz='UTC'):
