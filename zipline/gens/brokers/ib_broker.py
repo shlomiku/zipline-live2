@@ -57,11 +57,21 @@ _poll_frequency = 0.1
 
 symbol_to_exchange = defaultdict(lambda: 'SMART')
 symbol_to_exchange['VIX'] = 'CBOE'
+symbol_to_exchange['SPX'] = 'CBOE'
+symbol_to_exchange['VIX3M'] = 'CBOE'
+symbol_to_exchange['VXST'] = 'CBOE'
+symbol_to_exchange['VXMT'] = 'CBOE'
+symbol_to_exchange['GVZ'] = 'CBOE'
 symbol_to_exchange['GLD'] = 'ARCA'
 symbol_to_exchange['GDX'] = 'ARCA'
 
 symbol_to_sec_type = defaultdict(lambda: 'STK')
 symbol_to_sec_type['VIX'] = 'IND'
+symbol_to_sec_type['VIX3M'] = 'IND'
+symbol_to_sec_type['VXST'] = 'IND'
+symbol_to_sec_type['VXMT'] = 'IND'
+symbol_to_sec_type['GVZ'] = 'IND'
+symbol_to_sec_type['SPX'] = 'IND'
 
 
 def log_message(message, mapping):
