@@ -1109,6 +1109,7 @@ class TestALPACABroker(WithSimParams, ZiplineTestCase):
             'filled_at': '2017-06-01T10:05:00-0400',
             'submitted_at': '2017-06-01T10:04:30-0400',
             'filled_qty': '10',
+            'filled_avg_price': '210.05',
             'failed_at': None,
             'canceled_at': None,
             'limit_price': '210.32',
@@ -1125,6 +1126,7 @@ class TestALPACABroker(WithSimParams, ZiplineTestCase):
             'filled_at': None,
             'submitted_at': '2017-06-01T10:04:30-0400',
             'filled_qty': None,
+            'filled_avg_price': None,
             'failed_at': None,
             'canceled_at': None,
             'limit_price': '210.32',
@@ -1141,6 +1143,7 @@ class TestALPACABroker(WithSimParams, ZiplineTestCase):
             'filled_at': None,
             'submitted_at': '2017-06-01T10:04:30-0400',
             'filled_qty': None,
+            'filled_avg_price': None,
             'failed_at': None,
             'canceled_at': '2017-06-01T10:04:31-0400',
             'limit_price': '210.32',
@@ -1157,6 +1160,7 @@ class TestALPACABroker(WithSimParams, ZiplineTestCase):
             'filled_at': None,
             'submitted_at': '2017-06-01T10:04:30-0400',
             'filled_qty': None,
+            'filled_avg_price': None,
             'failed_at': '2017-06-01T10:04:31-0400',
             'canceled_at': None,
             'limit_price': '210.32',
@@ -1181,6 +1185,10 @@ class TestALPACABroker(WithSimParams, ZiplineTestCase):
 
         trans = broker.orders
         assert len(trans) == 4
+
+        trans = broker.transactions
+        assert len(trans) == 1
+        assert trans[id1].amount == 10
 
     @patch('zipline.gens.brokers.alpaca_broker.symbol_lookup')
     @patch('zipline.gens.brokers.alpaca_broker.tradeapi')

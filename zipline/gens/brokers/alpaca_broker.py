@@ -20,9 +20,11 @@ from zipline.finance.execution import (MarketOrder,
                                        LimitOrder,
                                        StopOrder,
                                        StopLimitOrder)
+from zipline.finance.transaction import Transaction
 from zipline.api import symbol as symbol_lookup
 from zipline.errors import SymbolNotFound
 import pandas as pd
+import numpy as np
 import uuid
 
 from logbook import Logger
@@ -94,6 +96,7 @@ class ALPACABroker(Broker):
         z_portfolio.positions = self.positions
         z_portfolio.positions_value = float(
             account.portfolio_value) - float(account.cash)
+        z_portfolio.portfolio_value = float(account.portfolio_value)
         return z_portfolio
 
     @property
@@ -184,15 +187,26 @@ class ALPACABroker(Broker):
     def orders(self):
         return {
             o.client_order_id: self._order2zp(o)
-            for o in self._api.list_orders()
+            for o in self._api.list_orders('all')
         }
 
     @property
     def transactions(self):
-        return {
-            o.client_order_id: self._order2zp(o)
-            for o in self._api.list_orders(status='all')
-        }
+        orders = self._api.list_orders(status='closed')
+        results = {}
+        for order in orders:
+            if order.filled_at is None:
+                continue
+            tx = Transaction(
+                asset=symbol_lookup(order.symbol),
+                amount=int(order.filled_qty),
+                dt=order.filled_at,
+                price=float(order.filled_avg_price),
+                order_id=order.client_order_id,
+                commission=0.0,
+            )
+            results[order.client_order_id] = tx
+        return results
 
     def cancel_order(self, zp_order_id):
         try:
@@ -218,8 +232,12 @@ class ALPACABroker(Broker):
             quotes = self._api.list_quotes(symbols)
             if assets_is_scalar:
                 if field == 'price':
+                    if len(quotes) == 0:
+                        return np.nan
                     return quotes[-1].last
                 else:
+                    if len(quotes) == 0:
+                        return pd.NaT
                     return quotes[-1].last_timestamp
             else:
                 return [
@@ -229,6 +247,8 @@ class ALPACABroker(Broker):
 
         bars_list = self._api.list_bars(symbols, '1Min', limit=1)
         if assets_is_scalar:
+            if len(bars_list) == 0:
+                return np.nan
             return bars_list[0].bars[-1]._raw[field]
         bars_map = {a.symbol: a for a in bars_list}
         return [
@@ -254,6 +274,9 @@ class ALPACABroker(Broker):
         for asset in assets if not assets_is_scalar else [assets]:
             symbol = asset.symbol
             df = bars_map[symbol].df.copy()
+            if df.index.tz is None:
+                df.index = df.index.tz_localize(
+                    'utc').tz_convert('America/New_York')
             df.columns = pd.MultiIndex.from_product([[asset, ], df.columns])
             dfs.append(df)
         return pd.concat(dfs, axis=1)
