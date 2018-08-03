@@ -5,6 +5,7 @@ from __future__ import division
 from collections import OrderedDict
 from itertools import product
 from operator import add, sub
+from unittest import skipIf
 
 from nose_parameterized import parameterized
 from numpy import (
@@ -51,6 +52,7 @@ from zipline.pipeline.factors import (
     ExponentialWeightedMovingAverage,
     ExponentialWeightedMovingStdDev,
     MaxDrawdown,
+    Returns,
     SimpleMovingAverage,
 )
 from zipline.pipeline.loaders.equity_pricing_loader import (
@@ -67,7 +69,6 @@ from zipline.pipeline.term import InputDates
 from zipline.testing import (
     AssetID,
     AssetIDPlusDay,
-    ExplodingObject,
     check_arrays,
     make_alternating_boolean_array,
     make_cascading_boolean_array,
@@ -75,15 +76,11 @@ from zipline.testing import (
     parameter_space,
     product_upper_triangle,
 )
-from zipline.testing.fixtures import (
-    WithAdjustmentReader,
-    WithSeededRandomPipelineEngine,
-    WithTradingEnvironment,
-    ZiplineTestCase,
-)
+import zipline.testing.fixtures as zf
 from zipline.testing.predicates import assert_equal
 from zipline.utils.memoize import lazyval
 from zipline.utils.numpy_utils import bool_dtype, datetime64ns_dtype
+from zipline.utils.pandas_utils import new_pandas, skip_pipeline_new_pandas
 
 
 class RollingSumDifference(CustomFactor):
@@ -167,7 +164,7 @@ class RollingSumSum(CustomFactor):
         out[:] = sum(inputs).sum(axis=0)
 
 
-class WithConstantInputs(WithTradingEnvironment):
+class WithConstantInputs(object):
     asset_ids = ASSET_FINDER_EQUITY_SIDS = 1, 2, 3, 4
     START_DATE = Timestamp('2014-01-01', tz='utc')
     END_DATE = Timestamp('2014-03-01', tz='utc')
@@ -197,7 +194,10 @@ class WithConstantInputs(WithTradingEnvironment):
         cls.assets = cls.asset_finder.retrieve_all(cls.asset_ids)
 
 
-class ConstantInputTestCase(WithConstantInputs, ZiplineTestCase):
+class ConstantInputTestCase(WithConstantInputs,
+                            zf.WithAssetFinder,
+                            zf.WithTradingCalendars,
+                            zf.ZiplineTestCase):
     def test_bad_dates(self):
         loader = self.loader
         engine = SimplePipelineEngine(
@@ -814,7 +814,9 @@ class ConstantInputTestCase(WithConstantInputs, ZiplineTestCase):
                                                   Loader2DataSet.col2)})
 
 
-class FrameInputTestCase(WithTradingEnvironment, ZiplineTestCase):
+class FrameInputTestCase(zf.WithAssetFinder,
+                         zf.WithTradingCalendars,
+                         zf.ZiplineTestCase):
     asset_ids = ASSET_FINDER_EQUITY_SIDS = 1, 2, 3
     start = START_DATE = Timestamp('2015-01-01', tz='utc')
     end = END_DATE = Timestamp('2015-01-31', tz='utc')
@@ -918,8 +920,9 @@ class FrameInputTestCase(WithTradingEnvironment, ZiplineTestCase):
                 assert_frame_equal(high_results, high_base.iloc[iloc_bounds])
 
 
-class SyntheticBcolzTestCase(WithAdjustmentReader,
-                             ZiplineTestCase):
+class SyntheticBcolzTestCase(zf.WithAdjustmentReader,
+                             zf.WithAssetFinder,
+                             zf.ZiplineTestCase):
     first_asset_start = Timestamp('2015-04-01', tz='UTC')
     START_DATE = Timestamp('2015-01-01', tz='utc')
     END_DATE = Timestamp('2015-08-01', tz='utc')
@@ -1076,7 +1079,9 @@ class SyntheticBcolzTestCase(WithAdjustmentReader,
         assert_frame_equal(expected, result)
 
 
-class ParameterizedFactorTestCase(WithTradingEnvironment, ZiplineTestCase):
+class ParameterizedFactorTestCase(zf.WithAssetFinder,
+                                  zf.WithTradingCalendars,
+                                  zf.ZiplineTestCase):
     sids = ASSET_FINDER_EQUITY_SIDS = Int64Index([1, 2, 3])
     START_DATE = Timestamp('2015-01-31', tz='UTC')
     END_DATE = Timestamp('2015-03-01', tz='UTC')
@@ -1293,9 +1298,10 @@ class ParameterizedFactorTestCase(WithTradingEnvironment, ZiplineTestCase):
         assert_frame_equal(results['dv5_nan'].unstack(), expected_5_nan)
 
 
-class StringColumnTestCase(WithSeededRandomPipelineEngine,
-                           ZiplineTestCase):
+class StringColumnTestCase(zf.WithSeededRandomPipelineEngine,
+                           zf.ZiplineTestCase):
 
+    @skipIf(new_pandas, skip_pipeline_new_pandas)
     def test_string_classifiers_produce_categoricals(self):
         """
         Test that string-based classifiers produce pandas categoricals as their
@@ -1323,8 +1329,8 @@ class StringColumnTestCase(WithSeededRandomPipelineEngine,
         assert_frame_equal(result.c.unstack(), expected_final_result)
 
 
-class WindowSafetyPropagationTestCase(WithSeededRandomPipelineEngine,
-                                      ZiplineTestCase):
+class WindowSafetyPropagationTestCase(zf.WithSeededRandomPipelineEngine,
+                                      zf.ZiplineTestCase):
 
     SEEDED_RANDOM_PIPELINE_SEED = 5
 
@@ -1375,7 +1381,10 @@ class WindowSafetyPropagationTestCase(WithSeededRandomPipelineEngine,
             assert_equal(expected_result, results[colname])
 
 
-class PopulateInitialWorkspaceTestCase(WithConstantInputs, ZiplineTestCase):
+class PopulateInitialWorkspaceTestCase(WithConstantInputs,
+                                       zf.WithAssetFinder,
+                                       zf.WithTradingCalendars,
+                                       zf.ZiplineTestCase):
 
     @parameter_space(window_length=[3, 5], pipeline_length=[5, 10])
     def test_populate_initial_workspace(self, window_length, pipeline_length):
@@ -1435,10 +1444,9 @@ class PopulateInitialWorkspaceTestCase(WithConstantInputs, ZiplineTestCase):
             return ws
 
         def dispatcher(c):
-            if c is column:
-                # the base_term should never be loaded, its initial refcount
-                # should be zero
-                return ExplodingObject()
+            self.assertIsNot(
+                c, column, "Shouldn't need to dispatch precomputed term input!"
+            )
             return self.loader
 
         engine = SimplePipelineEngine(
@@ -1497,3 +1505,63 @@ class PopulateInitialWorkspaceTestCase(WithConstantInputs, ZiplineTestCase):
                 precomputed_term_value,
             ),
         )
+
+
+class ChunkedPipelineTestCase(zf.WithEquityPricingPipelineEngine,
+                              zf.ZiplineTestCase):
+
+    PIPELINE_START_DATE = Timestamp('2006-01-05', tz='UTC')
+    END_DATE = Timestamp('2006-12-29', tz='UTC')
+
+    def test_run_chunked_pipeline(self):
+        """
+        Test that running a pipeline in chunks produces the same result as if
+        it were run all at once
+        """
+        pipe = Pipeline(
+            columns={
+                'close': USEquityPricing.close.latest,
+                'returns': Returns(window_length=2),
+                'categorical': USEquityPricing.close.latest.quantiles(5)
+            },
+        )
+        pipeline_result = self.pipeline_engine.run_pipeline(
+            pipe,
+            start_date=self.PIPELINE_START_DATE,
+            end_date=self.END_DATE,
+        )
+        chunked_result = self.pipeline_engine.run_chunked_pipeline(
+            pipeline=pipe,
+            start_date=self.PIPELINE_START_DATE,
+            end_date=self.END_DATE,
+            chunksize=22
+        )
+        self.assertTrue(chunked_result.equals(pipeline_result))
+
+
+class MaximumRegressionTest(zf.WithSeededRandomPipelineEngine,
+                            zf.ZiplineTestCase):
+    ASSET_FINDER_EQUITY_SIDS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+    def test_no_groupby_maximum(self):
+        # This is a regression test for a bug where factor.top(1) would fail
+        # when not passed a groupby parameter.
+
+        factor = TestingDataSet.float_col.latest
+        maximum = factor.top(1)
+        pipe = Pipeline({'factor': factor, 'maximum': maximum})
+        result = self.run_pipeline(
+            pipe, self.trading_days[-5], self.trading_days[-1]
+        )
+
+        # We should have one maximum every day.
+        maxes_per_day = result.groupby(level=0)['maximum'].sum()
+        self.assertTrue((maxes_per_day == 1).all())
+
+        # The maximum computed by pipeline should match the maximum computed by
+        # doing a groupby in pandas.
+        groupby_max = result.groupby(level=0).factor.max()
+        pipeline_max = (result.factor[result.maximum]
+                        .reset_index(level=1, drop=True))
+
+        assert_equal(groupby_max, pipeline_max)

@@ -35,7 +35,7 @@ from pandas import (
     date_range,
 )
 
-from zipline.data.bar_reader import NoDataOnDate
+from zipline.data.bar_reader import NoDataForSid, NoDataOnDate
 from zipline.data.minute_bars import (
     BcolzMinuteBarMetadata,
     BcolzMinuteBarWriter,
@@ -102,6 +102,11 @@ class BcolzMinuteBarTestCase(WithTradingCalendars,
             metadata.version,
             BcolzMinuteBarMetadata.FORMAT_VERSION,
         )
+
+    def test_no_minute_bars_for_sid(self):
+        minute = self.market_opens[self.test_calendar_start]
+        with self.assertRaises(NoDataForSid):
+            self.reader.get_value(1337, minute, 'close')
 
     def test_write_one_ohlcv(self):
         minute = self.market_opens[self.test_calendar_start]
@@ -645,7 +650,7 @@ class BcolzMinuteBarTestCase(WithTradingCalendars,
                 'close': full(9, nan),
                 'volume': full(9, 0.0),
             },
-            index=[minutes])
+            index=minutes)
         self.writer.write_sid(sid, data)
 
         fields = ['open', 'high', 'low', 'close', 'volume']
@@ -688,7 +693,7 @@ class BcolzMinuteBarTestCase(WithTradingCalendars,
                 view(float64),
                 'volume': full(9, 0.0),
             },
-            index=[minutes])
+            index=minutes)
         self.writer.write_sid(sid, data)
 
         fields = ['open', 'high', 'low', 'close', 'volume']
@@ -1129,7 +1134,7 @@ class BcolzMinuteBarTestCase(WithTradingCalendars,
                 'close': [40.0, 41.0, nan],
                 'volume': [50, 51, 0]
             },
-            index=[minutes])
+            index=minutes)
         self.writer.write_sid(sid, data)
 
         open_price = self.reader.get_value(sid, minute, 'open')

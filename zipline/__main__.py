@@ -9,11 +9,15 @@ import logbook
 import pandas as pd
 from six import text_type
 
+import zipline
 import pkgutil
 
 from zipline.data import bundles as bundles_module
+from trading_calendars import get_calendar
+from zipline.utils.compat import wraps
 from zipline.utils.cli import Date, Timestamp
 from zipline.utils.run_algo import _run, load_extensions
+from zipline.extensions import create_args
 from zipline.gens import brokers
 
 try:
@@ -43,11 +47,18 @@ except NameError:
     default=True,
     help="Don't load the default zipline extension.py file in $ZIPLINE_HOME.",
 )
-def main(extension, strict_extensions, default_extension):
+@click.option(
+    '-x',
+    multiple=True,
+    help='Any custom command line arguments to define, in key=value form.'
+)
+def main(extension, strict_extensions, default_extension, x):
     """Top level zipline entry point.
     """
+
     # install a logbook handler before performing any other operations
     logbook.StderrHandler().push_application()
+    create_args(x, zipline.extension_args)
     load_extensions(
         default_extension,
         extension,
@@ -143,7 +154,7 @@ def ipython_only(option):
 @click.option(
     '-b',
     '--bundle',
-    default='quantopian-quandl',
+    default='quandl',
     metavar='BUNDLE-NAME',
     show_default=True,
     help='The data bundle to use for the simulation.',
@@ -178,10 +189,28 @@ def ipython_only(option):
     " be written to stdout.",
 )
 @click.option(
+    '--trading-calendar',
+    metavar='TRADING-CALENDAR',
+    default='NYSE',
+    help="The calendar you want to use e.g. LSE. NYSE is the default."
+)
+@click.option(
     '--print-algo/--no-print-algo',
     is_flag=True,
     default=False,
     help='Print the algorithm to stdout.',
+)
+@click.option(
+    '--metrics-set',
+    default='default',
+    help='The metrics set to use. New metrics sets may be registered in your'
+    ' extension.py.',
+)
+@click.option(
+    '--blotter',
+    default='default',
+    help="The blotter to use.",
+    show_default=True,
 )
 @ipython_only(click.option(
     '--local-namespace/--no-local-namespace',
@@ -230,8 +259,11 @@ def run(ctx,
         start,
         end,
         output,
+        trading_calendar,
         print_algo,
+        metrics_set,
         local_namespace,
+        blotter,
         broker,
         broker_uri,
         state_file,
@@ -292,6 +324,8 @@ def run(ctx,
             " '-t' / '--algotext'",
         )
 
+    trading_calendar = get_calendar(trading_calendar)
+
     perf = _run(
         initialize=None,
         handle_data=None,
@@ -302,15 +336,18 @@ def run(ctx,
         defines=define,
         data_frequency=data_frequency,
         capital_base=capital_base,
-        data=None,
         bundle=bundle,
         bundle_timestamp=bundle_timestamp,
         start=start,
         end=end,
         output=output,
+        trading_calendar=trading_calendar,
         print_algo=print_algo,
+        metrics_set=metrics_set,
         local_namespace=local_namespace,
         environ=os.environ,
+        blotter=blotter,
+        benchmark_returns=None,
         broker=brokerobj,
         state_filename=state_file,
         realtime_bar_target=realtime_bar_target
@@ -361,7 +398,7 @@ def zipline_magic(line, cell=None):
 @click.option(
     '-b',
     '--bundle',
-    default='quantopian-quandl',
+    default='quandl',
     metavar='BUNDLE-NAME',
     show_default=True,
     help='The data bundle to ingest.',
@@ -393,7 +430,7 @@ def ingest(bundle, assets_version, show_progress):
 @click.option(
     '-b',
     '--bundle',
-    default='quantopian-quandl',
+    default='quandl',
     metavar='BUNDLE-NAME',
     show_default=True,
     help='The data bundle to clean.',

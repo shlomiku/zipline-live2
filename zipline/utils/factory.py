@@ -20,18 +20,16 @@ Factory functions to prepare useful data.
 import pandas as pd
 import numpy as np
 from datetime import timedelta, datetime
+from trading_calendars import get_calendar
 
-from zipline.assets import Asset
-from zipline.finance.transaction import Transaction
-from zipline.protocol import Event, DATASOURCE_TYPE
 from zipline.sources import SpecificEquityTrades
 from zipline.finance.trading import SimulationParameters
 from zipline.sources.test_source import create_trade
-from zipline.utils.calendars import get_calendar
-from zipline.utils.input_validation import expect_types
 
 
-def create_simulation_parameters(year=2006, start=None, end=None,
+def create_simulation_parameters(year=2006,
+                                 start=None,
+                                 end=None,
                                  capital_base=float("1.0e5"),
                                  num_days=None,
                                  data_frequency='daily',
@@ -104,73 +102,6 @@ def create_trade_history(sid, prices, amounts, interval, sim_params,
     return trades
 
 
-def create_dividend(sid, payment, declared_date, ex_date, pay_date):
-    div = Event({
-        'sid': sid,
-        'gross_amount': payment,
-        'net_amount': payment,
-        'payment_sid': None,
-        'ratio': None,
-        'declared_date': pd.tslib.normalize_date(declared_date),
-        'ex_date': pd.tslib.normalize_date(ex_date),
-        'pay_date': pd.tslib.normalize_date(pay_date),
-        'type': DATASOURCE_TYPE.DIVIDEND,
-        'source_id': 'MockDividendSource'
-    })
-    return div
-
-
-def create_stock_dividend(sid, payment_sid, ratio, declared_date,
-                          ex_date, pay_date):
-    return Event({
-        'sid': sid,
-        'payment_sid': payment_sid,
-        'ratio': ratio,
-        'net_amount': None,
-        'gross_amount': None,
-        'dt': pd.tslib.normalize_date(declared_date),
-        'ex_date': pd.tslib.normalize_date(ex_date),
-        'pay_date': pd.tslib.normalize_date(pay_date),
-        'type': DATASOURCE_TYPE.DIVIDEND,
-        'source_id': 'MockDividendSource'
-    })
-
-
-def create_split(sid, ratio, date):
-    return Event({
-        'sid': sid,
-        'ratio': ratio,
-        'dt': date.replace(hour=0, minute=0, second=0, microsecond=0),
-        'type': DATASOURCE_TYPE.SPLIT,
-        'source_id': 'MockSplitSource'
-    })
-
-
-@expect_types(asset=Asset)
-def create_txn(asset, price, amount, datetime, order_id):
-    return Transaction(
-        asset=asset,
-        price=price,
-        amount=amount,
-        dt=datetime,
-        order_id=order_id,
-    )
-
-
-@expect_types(asset=Asset)
-def create_txn_history(asset, priceList, amtList, interval, sim_params,
-                       trading_calendar):
-    txns = []
-    current = sim_params.first_open
-
-    for price, amount in zip(priceList, amtList):
-        dt = get_next_trading_dt(current, interval, trading_calendar)
-
-        txns.append(create_txn(asset, price, amount, dt, None))
-        current = current + interval
-    return txns
-
-
 def create_returns_from_range(sim_params):
     return pd.Series(index=sim_params.sessions,
                      data=np.random.rand(len(sim_params.sessions)))
@@ -181,7 +112,7 @@ def create_returns_from_list(returns, sim_params):
                      data=returns)
 
 
-def create_daily_trade_source(sids, sim_params, env, trading_calendar,
+def create_daily_trade_source(sids, sim_params, asset_finder, trading_calendar,
                               concurrent=False):
     """
     creates trade_count trades for each sid in sids list.
@@ -193,14 +124,18 @@ def create_daily_trade_source(sids, sim_params, env, trading_calendar,
         sids,
         timedelta(days=1),
         sim_params,
-        env=env,
+        asset_finder,
         trading_calendar=trading_calendar,
         concurrent=concurrent,
     )
 
 
-def create_trade_source(sids, trade_time_increment, sim_params, env,
-                        trading_calendar, concurrent=False):
+def create_trade_source(sids,
+                        trade_time_increment,
+                        sim_params,
+                        asset_finder,
+                        trading_calendar,
+                        concurrent=False):
 
     # If the sim_params define an end that is during market hours, that will be
     # used as the end of the data source
@@ -219,8 +154,8 @@ def create_trade_source(sids, trade_time_increment, sim_params, env,
         'delta': trade_time_increment,
         'filter': sids,
         'concurrent': concurrent,
-        'env': env,
         'trading_calendar': trading_calendar,
+        'asset_finder': asset_finder,
     }
     source = SpecificEquityTrades(*args, **kwargs)
 

@@ -1,6 +1,5 @@
+import click
 import os
-import re
-from runpy import run_path
 import sys
 import warnings
 
@@ -8,28 +7,31 @@ from functools import partial
 
 import pandas as pd
 
-
-import click
 try:
     from pygments import highlight
     from pygments.lexers import PythonLexer
     from pygments.formatters import TerminalFormatter
     PYGMENTS = True
-except:
+except ImportError:
     PYGMENTS = False
-from toolz import valfilter, concatv
+import six
+from toolz import concatv
+from trading_calendars import get_calendar
 
-from zipline.algorithm import TradingAlgorithm
-from zipline.algorithm_live import LiveTradingAlgorithm
-from zipline.data.bundles.core import load
+from zipline.data import bundles
+from zipline.data.loader import load_market_data
 from zipline.data.data_portal import DataPortal
 from zipline.data.data_portal_live import DataPortalLive
-from zipline.finance.trading import TradingEnvironment
+from zipline.finance import metrics
+from zipline.finance.trading import SimulationParameters
 from zipline.pipeline.data import USEquityPricing
 from zipline.pipeline.loaders import USEquityPricingLoader
-from zipline.utils.calendars import get_calendar
-from zipline.utils.factory import create_simulation_parameters
+
 import zipline.utils.paths as pth
+from zipline.extensions import load
+from zipline.algorithm import TradingAlgorithm
+from zipline.algorithm_live import LiveTradingAlgorithm
+from zipline.finance.blotter import Blotter
 
 
 class _RunAlgoError(click.ClickException, ValueError):
@@ -40,12 +42,16 @@ class _RunAlgoError(click.ClickException, ValueError):
     ----------
     pyfunc_msg : str
         The message that will be shown when called as a python function.
-    cmdline_msg : str
-        The message that will be shown on the command line.
+    cmdline_msg : str, optional
+        The message that will be shown on the command line. If not provided,
+        this will be the same as ``pyfunc_msg`
     """
     exit_code = 1
 
-    def __init__(self, pyfunc_msg, cmdline_msg):
+    def __init__(self, pyfunc_msg, cmdline_msg=None):
+        if cmdline_msg is None:
+            cmdline_msg = pyfunc_msg
+
         super(_RunAlgoError, self).__init__(cmdline_msg)
         self.pyfunc_msg = pyfunc_msg
 
@@ -62,15 +68,18 @@ def _run(handle_data,
          defines,
          data_frequency,
          capital_base,
-         data,
          bundle,
          bundle_timestamp,
          start,
          end,
          output,
+         trading_calendar,
          print_algo,
+         metrics_set,
          local_namespace,
          environ,
+         blotter,
+         benchmark_returns,
          broker,
          state_filename,
          realtime_bar_target):
@@ -78,6 +87,9 @@ def _run(handle_data,
 
     This is shared between the cli and :func:`zipline.run_algo`.
     """
+    if benchmark_returns is None:
+        benchmark_returns, _ = load_market_data(environ=environ)
+
     if algotext is not None:
         if local_namespace:
             ip = get_ipython()  # noqa
@@ -122,52 +134,63 @@ def _run(handle_data,
         else:
             click.echo(algotext)
 
-    if bundle is not None:
-        bundle_data = load(
-            bundle,
-            environ,
-            bundle_timestamp,
+    if trading_calendar is None:
+        trading_calendar = get_calendar('NYSE')
+
+    # date parameter validation
+    if trading_calendar.session_distance(start, end) < 1:
+        raise _RunAlgoError(
+            'There are no trading days between %s and %s' % (
+                start.date(),
+                end.date(),
+            ),
         )
 
-        prefix, connstr = re.split(
-            r'sqlite:///',
-            str(bundle_data.asset_finder.engine.url),
-            maxsplit=1,
-        )
-        if prefix:
-            raise ValueError(
-                "invalid url %r, must begin with 'sqlite:///'" %
-                str(bundle_data.asset_finder.engine.url),
-            )
-        env = TradingEnvironment(asset_db_path=connstr, environ=environ)
-        first_trading_day =\
-            bundle_data.equity_minute_bar_reader.first_trading_day
+    bundle_data = bundles.load(
+        bundle,
+        environ,
+        bundle_timestamp,
+    )
 
-        DataPortalClass = (partial(DataPortalLive, broker)
-                           if broker
-                           else DataPortal)
-        data = DataPortalClass(
-            env.asset_finder, get_calendar("NYSE"),
-            first_trading_day=first_trading_day,
-            equity_minute_reader=bundle_data.equity_minute_bar_reader,
-            equity_daily_reader=bundle_data.equity_daily_bar_reader,
-            adjustment_reader=bundle_data.adjustment_reader
+    first_trading_day = \
+        bundle_data.equity_minute_bar_reader.first_trading_day
+
+    DataPortalClass = (partial(DataPortalLive, broker)
+                       if broker
+                       else DataPortal)
+
+    data = DataPortalClass(
+        bundle_data.asset_finder,
+        trading_calendar=trading_calendar,
+        first_trading_day=first_trading_day,
+        equity_minute_reader=bundle_data.equity_minute_bar_reader,
+        equity_daily_reader=bundle_data.equity_daily_bar_reader,
+        adjustment_reader=bundle_data.adjustment_reader,
+    )
+
+    pipeline_loader = USEquityPricingLoader(
+        bundle_data.equity_daily_bar_reader,
+        bundle_data.adjustment_reader,
+    )
+
+    def choose_loader(column):
+        if column in USEquityPricing.columns:
+            return pipeline_loader
+        raise ValueError(
+            "No PipelineLoader registered for column %s." % column
         )
 
-        pipeline_loader = USEquityPricingLoader(
-            bundle_data.equity_daily_bar_reader,
-            bundle_data.adjustment_reader,
-        )
+    if isinstance(metrics_set, six.string_types):
+        try:
+            metrics_set = metrics.load(metrics_set)
+        except ValueError as e:
+            raise _RunAlgoError(str(e))
 
-        def choose_loader(column):
-            if column in USEquityPricing.columns:
-                return pipeline_loader
-            raise ValueError(
-                "No PipelineLoader registered for column %s." % column
-            )
-    else:
-        env = TradingEnvironment(environ=environ)
-        choose_loader = None
+    if isinstance(blotter, six.string_types):
+        try:
+            blotter = load(Blotter, blotter)
+        except ValueError as e:
+            raise _RunAlgoError(str(e))
 
     emission_rate = 'daily'
     if broker:
@@ -183,15 +206,20 @@ def _run(handle_data,
 
     perf = TradingAlgorithmClass(
         namespace=namespace,
-        env=env,
+        data_portal=data,
         get_pipeline_loader=choose_loader,
-        sim_params=create_simulation_parameters(
-            start=start,
-            end=end,
+        trading_calendar=trading_calendar,
+        sim_params=SimulationParameters(
+            start_session=start,
+            end_session=end,
+            trading_calendar=trading_calendar,
             capital_base=capital_base,
             emission_rate=emission_rate,
             data_frequency=data_frequency,
         ),
+        metrics_set=metrics_set,
+        blotter=blotter,
+        benchmark_returns=benchmark_returns,
         **{
             'initialize': initialize,
             'handle_data': handle_data,
@@ -201,10 +229,7 @@ def _run(handle_data,
             'algo_filename': getattr(algofile, 'name', '<algorithm>'),
             'script': algotext,
         }
-    ).run(
-        data,
-        overwrite_sim_params=False,
-    )
+    ).run()
 
     if output == '-':
         click.echo(str(perf))
@@ -251,7 +276,9 @@ def load_extensions(default, extensions, strict, environ, reload=False):
         try:
             # load all of the zipline extensionss
             if ext.endswith('.py'):
-                run_path(ext, run_name='<extension>')
+                with open(ext) as f:
+                    ns = {}
+                    six.exec_(compile(f.read(), ext, 'exec'), ns, ns)
             else:
                 __import__(ext)
         except Exception as e:
@@ -275,16 +302,20 @@ def run_algorithm(start,
                   before_trading_start=None,
                   analyze=None,
                   data_frequency='daily',
-                  data=None,
-                  bundle=None,
+                  bundle='quantopian-quandl',
                   bundle_timestamp=None,
+                  trading_calendar=None,
+                  metrics_set='default',
+                  benchmark_returns=None,
                   default_extension=True,
                   extensions=(),
                   strict_extensions=True,
                   environ=os.environ,
+                  blotter='default',
                   live_trading=False,
                   tws_uri=None):
-    """Run a trading algorithm.
+    """
+    Run a trading algorithm.
 
     Parameters
     ----------
@@ -311,19 +342,17 @@ def run_algorithm(start,
         performance data.
     data_frequency : {'daily', 'minute'}, optional
         The data frequency to run the algorithm at.
-    data : pd.DataFrame, pd.Panel, or DataPortal, optional
-        The ohlcv data to run the backtest with.
-        This argument is mutually exclusive with:
-        ``bundle``
-        ``bundle_timestamp``
     bundle : str, optional
         The name of the data bundle to use to load the data to run the backtest
         with. This defaults to 'quantopian-quandl'.
-        This argument is mutually exclusive with ``data``.
     bundle_timestamp : datetime, optional
         The datetime to lookup the bundle data for. This defaults to the
         current time.
-        This argument is mutually exclusive with ``data``.
+    trading_calendar : TradingCalendar, optional
+        The trading calendar to use for your backtest.
+    metrics_set : iterable[Metric] or str, optional
+        The set of metrics to compute in the simulation. If a string is passed,
+        resolve the set with :func:`zipline.finance.metrics.load`.
     default_extension : bool, optional
         Should the default zipline extension be loaded. This is found at
         ``$ZIPLINE_ROOT/extension.py``
@@ -337,6 +366,12 @@ def run_algorithm(start,
     environ : mapping[str -> str], optional
         The os environment to use. Many extensions use this to get parameters.
         This defaults to ``os.environ``.
+    blotter : str or zipline.finance.blotter.Blotter, optional
+        Blotter to use with this algorithm. If passed as a string, we look for
+        a blotter construction function registered with
+        ``zipline.extensions.register`` and call it with no parameters.
+        Default is a :class:`zipline.finance.blotter.SimulationBlotter` that
+        never cancels orders.
 
     Returns
     -------
@@ -349,25 +384,6 @@ def run_algorithm(start,
     """
     load_extensions(default_extension, extensions, strict_extensions, environ)
 
-    non_none_data = valfilter(bool, {
-        'data': data is not None,
-        'bundle': bundle is not None,
-    })
-    if not non_none_data:
-        # if neither data nor bundle are passed use 'quantopian-quandl'
-        bundle = 'quantopian-quandl'
-
-    elif len(non_none_data) != 1:
-        raise ValueError(
-            'must specify one of `data`, `data_portal`, or `bundle`,'
-            ' got: %r' % non_none_data,
-        )
-
-    elif 'bundle' not in non_none_data and bundle_timestamp is not None:
-        raise ValueError(
-            'cannot specify `bundle_timestamp` without passing `bundle`',
-        )
-
     return _run(
         handle_data=handle_data,
         initialize=initialize,
@@ -378,15 +394,18 @@ def run_algorithm(start,
         defines=(),
         data_frequency=data_frequency,
         capital_base=capital_base,
-        data=data,
         bundle=bundle,
         bundle_timestamp=bundle_timestamp,
         start=start,
         end=end,
         output=os.devnull,
+        trading_calendar=trading_calendar,
         print_algo=False,
+        metrics_set=metrics_set,
         local_namespace=False,
         environ=environ,
+        blotter=blotter,
+        benchmark_returns=benchmark_returns,
         broker=None,
         state_filename=None,
         realtime_bar_target=None

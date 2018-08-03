@@ -1,19 +1,28 @@
 """
 factor.py
 """
-from functools import wraps
 from operator import attrgetter
 from numbers import Number
 from math import ceil
 
-from numpy import empty_like, inf, nan, where
+from numpy import empty_like, inf, isnan, nan, where
 from scipy.stats import rankdata
 
-from zipline.errors import BadPercentileBounds, UnknownRankMethod
+from zipline.utils.compat import wraps
+from zipline.errors import (
+    BadPercentileBounds,
+    UnknownRankMethod,
+    UnsupportedDataType,
+)
 from zipline.lib.normalize import naive_grouped_rowwise_apply
 from zipline.lib.rank import masked_rankdata_2d, rankdata_1d_descending
 from zipline.pipeline.api_utils import restrict_to_dtype
 from zipline.pipeline.classifiers import Classifier, Everything, Quantiles
+from zipline.pipeline.dtypes import (
+    CLASSIFIER_DTYPES,
+    FACTOR_DTYPES,
+    FILTER_DTYPES,
+)
 from zipline.pipeline.expression import (
     BadBinaryOperator,
     COMPARISONS,
@@ -29,6 +38,7 @@ from zipline.pipeline.filters import (
     Filter,
     NumExprFilter,
     PercentileFilter,
+    MaximumFilter,
     NotNullFilter,
     NullFilter,
 )
@@ -49,11 +59,8 @@ from zipline.utils.math_utils import nanmean, nanstd
 from zipline.utils.memoize import classlazyval
 from zipline.utils.numpy_utils import (
     bool_dtype,
-    categorical_dtype,
     coerce_to_dtype,
-    datetime64ns_dtype,
     float64_dtype,
-    int64_dtype,
 )
 
 
@@ -283,6 +290,7 @@ def function_application(func):
     if func not in NUMEXPR_MATH_FUNCS:
         raise ValueError("Unsupported mathematical function '%s'" % func)
 
+    @with_doc(func)
     @with_name(func)
     def mathfunc(self):
         if isinstance(self, NumericalExpression):
@@ -317,8 +325,6 @@ float64_only = restrict_to_dtype(
         " but it was called on a Factor of dtype {received_dtype}."
     )
 )
-
-FACTOR_DTYPES = frozenset([datetime64ns_dtype, float64_dtype, int64_dtype])
 
 
 class Factor(RestrictedDTypeMixin, ComputableTerm):
@@ -384,6 +390,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
     __truediv__ = clsdict['__div__']
     __rtruediv__ = clsdict['__rdiv__']
 
+    del clsdict  # don't pollute the class namespace with this.
+
     eq = binary_operator('==')
 
     @expect_types(
@@ -410,8 +418,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
         groupby : zipline.pipeline.Classifier, optional
             A classifier defining partitions over which to compute means.
 
-        Example
-        -------
+        Examples
+        --------
         Let ``f`` be a Factor which would produce the following output::
 
                          AAPL   MSFT    MCD     BK
@@ -562,8 +570,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
 
         ``zscore()`` is only supported on Factors of dtype float64.
 
-        Example
-        -------
+        Examples
+        --------
         See :meth:`~zipline.pipeline.factors.Factor.demean` for an in-depth
         example of the semantics for ``mask`` and ``groupby``.
 
@@ -674,8 +682,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
             A new Factor that will compute correlations between `target` and
             the columns of `self`.
 
-        Example
-        -------
+        Examples
+        --------
         Suppose we want to create a factor that computes the correlation
         between AAPL's 10-day returns and the 10-day returns of all other
         assets, computing each correlation over 30 days. This can be achieved
@@ -739,8 +747,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
             A new Factor that will compute correlations between `target` and
             the columns of `self`.
 
-        Example
-        -------
+        Examples
+        --------
         Suppose we want to create a factor that computes the correlation
         between AAPL's 10-day returns and the 10-day returns of all other
         assets, computing each correlation over 30 days. This can be achieved
@@ -803,8 +811,8 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
             A new Factor that will compute linear regressions of `target`
             against the columns of `self`.
 
-        Example
-        -------
+        Examples
+        --------
         Suppose we want to create a factor that regresses AAPL's 10-day returns
         against the 10-day returns of all other assets, computing each
         regression over 30 days. This can be achieved by doing the following::
@@ -847,29 +855,32 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
                   mask=NotSpecified,
                   groupby=NotSpecified):
         """
-        Construct a Factor returns a winsorized row. Winsorizing changes values
-        ranked less than the minimum percentile to to value at the minimum
-        percentile. Similarly, values ranking above the maximum percentile will
-        be changed to the value at the maximum percentile. This is useful
-        when limiting the impact of extreme values.
+        Construct a new factor that winsorizes the result of this factor.
+
+        Winsorizing changes values ranked less than the minimum percentile to
+        the value at the minimum percentile. Similarly, values ranking above
+        the maximum percentile are changed to the value at the maximum
+        percentile.
+
+        Winsorizing is useful for limiting the impact of extreme data points
+        without completely removing those points.
 
         If ``mask`` is supplied, ignore values where ``mask`` returns False
-        when computing row means and standard deviations, and output NaN
-        anywhere the mask is False.
+        when computing percentile cutoffs, and output NaN anywhere the mask is
+        False.
 
-        If ``groupby`` is supplied, compute by partitioning each row based on
-        the values produced by ``groupby``, winsorizing the partitioned arrays,
-        and stitching the sub-results back together.
+        If ``groupby`` is supplied, winsorization is applied separately
+        separately to each group defined by ``groupby``.
 
         Parameters
         ----------
         min_percentile: float, int
             Entries with values at or below this percentile will be replaced
-            with the (len(inp) * min_percentile)th lowest value. If low values
-            should not be clipped, use 0.
+            with the (len(input) * min_percentile)th lowest value. If low
+            values should not be clipped, use 0.
         max_percentile: float, int
             Entries with values at or above this percentile will be replaced
-            with the (len(inp) * max_percentile)th lowest value. If high
+            with the (len(input) * max_percentile)th lowest value. If high
             values should not be clipped, use 1.
         mask : zipline.pipeline.Filter, optional
             A Filter defining values to ignore when winsorizing.
@@ -881,34 +892,37 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
         winsorized : zipline.pipeline.Factor
             A Factor producing a winsorized version of self.
 
-        Example
-        -------
+        Examples
+        --------
+        .. code-block:: python
 
-        price = USEquityPricing.close.latest
-        columns={
-            'PRICE': price,
-            'WINSOR_1: price.winsorize(
-                min_percentile=0.25, max_percentile=0.75
-            ),
-            'WINSOR_2': price.winsorize(
-                min_percentile=0.50, max_percentile=1.0
-            ),
-            'WINSOR_3': price.winsorize(
-                min_percentile=0.0, max_percentile=0.5
-            ),
+            price = USEquityPricing.close.latest
+            columns={
+                'PRICE': price,
+                'WINSOR_1: price.winsorize(
+                    min_percentile=0.25, max_percentile=0.75
+                ),
+                'WINSOR_2': price.winsorize(
+                    min_percentile=0.50, max_percentile=1.0
+                ),
+                'WINSOR_3': price.winsorize(
+                    min_percentile=0.0, max_percentile=0.5
+                ),
 
-        }
+            }
 
         Given a pipeline with columns, defined above, the result for a
         given day could look like:
 
-                'PRICE' 'WINSOR_1' 'WINSOR_2' 'WINSOR_3'
-        Asset_1    1        2          4          3
-        Asset_2    2        2          4          3
-        Asset_3    3        3          4          3
-        Asset_4    4        4          4          4
-        Asset_5    5        5          5          4
-        Asset_6    6        5          5          4
+        ::
+
+                    'PRICE' 'WINSOR_1' 'WINSOR_2' 'WINSOR_3'
+            Asset_1    1        2          4          3
+            Asset_2    2        2          4          3
+            Asset_3    3        3          4          3
+            Asset_4    4        4          4          4
+            Asset_5    5        5          5          4
+            Asset_6    6        5          5          4
 
         See Also
         --------
@@ -1053,6 +1067,10 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
         -------
         filter : zipline.pipeline.filters.Filter
         """
+        if N == 1:
+            # Special case: if N == 1, we can avoid doing a full sort on every
+            # group, which is a big win.
+            return self._maximum(mask=mask, groupby=groupby)
         return self.rank(ascending=False, mask=mask, groupby=groupby) <= N
 
     def bottom(self, N, mask=NotSpecified, groupby=NotSpecified):
@@ -1078,6 +1096,9 @@ class Factor(RestrictedDTypeMixin, ComputableTerm):
         filter : zipline.pipeline.Filter
         """
         return self.rank(ascending=True, mask=mask, groupby=groupby) <= N
+
+    def _maximum(self, mask=NotSpecified, groupby=NotSpecified):
+        return MaximumFilter(self, groupby=groupby, mask=mask)
 
     def percentile_between(self,
                            min_percentile,
@@ -1285,21 +1306,7 @@ class GroupedRowTransform(Factor):
 
     def _compute(self, arrays, dates, assets, mask):
         data = arrays[0]
-        groupby_expr = self.inputs[1]
-        if groupby_expr.dtype == int64_dtype:
-            group_labels = arrays[1]
-            null_label = self.inputs[1].missing_value
-        elif groupby_expr.dtype == categorical_dtype:
-            # Coerce our LabelArray into an isomorphic array of ints.  This is
-            # necessary because np.where doesn't know about LabelArrays or the
-            # void dtype.
-            group_labels = arrays[1].as_int_array()
-            null_label = arrays[1].missing_value_code
-        else:
-            raise TypeError(
-                "Unexpected groupby dtype: %s." % groupby_expr.dtype
-            )
-
+        group_labels, null_label = self.inputs[1]._to_integral(arrays[1])
         # Make a copy with the null code written to masked locations.
         group_labels = where(mask, group_labels, null_label)
         return where(
@@ -1318,7 +1325,8 @@ class GroupedRowTransform(Factor):
     def transform_name(self):
         return self._transform.__name__
 
-    def short_repr(self):
+    def graph_repr(self):
+        """Short repr to use when rendering Pipeline graphs."""
         return type(self).__name__ + '(%r)' % self.transform_name
 
 
@@ -1401,6 +1409,12 @@ class Rank(SingleInputMixin, Factor):
             input_=self.inputs[0],
             method=self._method,
             mask=self.mask,
+        )
+
+    def graph_repr(self):
+        return "Rank:\l  method: {!r}\l  mask: {}\l".format(
+            self._method,
+            type(self.mask).__name__,
         )
 
 
@@ -1549,6 +1563,24 @@ class CustomFactor(PositiveWindowLengthMixin, CustomTermMixin, Factor):
     '''
     dtype = float64_dtype
 
+    def _validate(self):
+        try:
+            super(CustomFactor, self)._validate()
+        except UnsupportedDataType:
+            if self.dtype in CLASSIFIER_DTYPES:
+                raise UnsupportedDataType(
+                    typename=type(self).__name__,
+                    dtype=self.dtype,
+                    hint='Did you mean to create a CustomClassifier?',
+                )
+            elif self.dtype in FILTER_DTYPES:
+                raise UnsupportedDataType(
+                    typename=type(self).__name__,
+                    dtype=self.dtype,
+                    hint='Did you mean to create a CustomFilter?',
+                )
+            raise
+
     def __getattribute__(self, name):
         outputs = object.__getattribute__(self, 'outputs')
         if outputs is NotSpecified:
@@ -1591,6 +1623,7 @@ class RecarrayField(SingleInputMixin, Factor):
             mask=factor.mask,
             dtype=factor.dtype,
             missing_value=factor.missing_value,
+            window_safe=factor.window_safe
         )
 
     def _init(self, attribute, *args, **kwargs):
@@ -1606,6 +1639,9 @@ class RecarrayField(SingleInputMixin, Factor):
 
     def _compute(self, windows, dates, assets, mask):
         return windows[0][self._attribute]
+
+    def graph_repr(self):
+        return "{}.{}".format(self.inputs[0].graph_repr(), self._attribute)
 
 
 class Latest(LatestMixin, CustomFactor):
@@ -1636,16 +1672,26 @@ def winsorize(row, min_percentile, max_percentile):
     This implementation is based on scipy.stats.mstats.winsorize
     """
     a = row.copy()
-    num = a.size
+    nan_count = isnan(row).sum()
+    nonnan_count = a.size - nan_count
+
+    # NOTE: argsort() sorts nans to the end of the array.
     idx = a.argsort()
+
+    # Set values at indices below the min percentile to the value of the entry
+    # at the cutoff.
     if min_percentile > 0:
-        lowidx = int(min_percentile * num)
-        a[idx[:lowidx]] = a[idx[lowidx]]
+        lower_cutoff = int(min_percentile * nonnan_count)
+        a[idx[:lower_cutoff]] = a[idx[lower_cutoff]]
+
+    # Set values at indices above the max percentile to the value of the entry
+    # at the cutoff.
     if max_percentile < 1:
-        upidx = int(ceil(num * max_percentile))
-        # upidx could return as the length of the array, in this case
-        # no modification to the right tail is necessary.
-        if upidx < num:
-            a[idx[upidx:]] = a[idx[upidx - 1]]
+        upper_cutoff = int(ceil(nonnan_count * max_percentile))
+        # if max_percentile is close to 1, then upper_cutoff might not
+        # remove any values.
+        if upper_cutoff < nonnan_count:
+            start_of_nans = (-nan_count) if nan_count else None
+            a[idx[upper_cutoff:start_of_nans]] = a[idx[upper_cutoff - 1]]
 
     return a
