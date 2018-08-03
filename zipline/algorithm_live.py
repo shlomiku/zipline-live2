@@ -25,7 +25,7 @@ from zipline.utils.api_support import (
     api_method,
     allowed_only_in_before_trading_start)
 
-from zipline.utils.calendars.trading_calendar import days_at_time
+from trading_calendars.utils.pandas_utils import days_at_time
 from zipline.utils.serialization_utils import load_context, store_context
 
 log = logbook.Logger("Live Trading")
