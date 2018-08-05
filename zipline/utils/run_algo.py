@@ -313,7 +313,11 @@ def run_algorithm(start,
                   environ=os.environ,
                   blotter='default',
                   live_trading=False,
-                  tws_uri=None):
+                  tws_uri=None,
+                  broker=None,
+                  state_filename=None,
+                  realtime_bar_target=None
+                  ):
     """
     Run a trading algorithm.
 
@@ -406,7 +410,7 @@ def run_algorithm(start,
         environ=environ,
         blotter=blotter,
         benchmark_returns=benchmark_returns,
-        broker=None,
-        state_filename=None,
-        realtime_bar_target=None
+        broker=broker,
+        state_filename=state_filename,
+        realtime_bar_target=realtime_bar_target
     )
