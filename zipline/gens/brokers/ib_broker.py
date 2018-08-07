@@ -64,6 +64,9 @@ symbol_to_exchange['VXMT'] = 'CBOE'
 symbol_to_exchange['GVZ'] = 'CBOE'
 symbol_to_exchange['GLD'] = 'ARCA'
 symbol_to_exchange['GDX'] = 'ARCA'
+symbol_to_exchange['GPRO'] = 'SMART/NASDAQ'
+symbol_to_exchange['MSFT'] = 'SMART/NASDAQ'
+symbol_to_exchange['CSCO'] = 'SMART/NASDAQ'
 
 symbol_to_sec_type = defaultdict(lambda: 'STK')
 symbol_to_sec_type['VIX'] = 'IND'
