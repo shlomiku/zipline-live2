@@ -829,14 +829,14 @@ class IBBroker(Broker):
                 open_order_state = self._tws.open_orders[ib_order_id]['state']
 
                 zp_status = self._ib_to_zp_status(open_order_state.m_status)
-                if zp_status:
-                    zp_order.status = zp_status
-                else:
+                if zp_status is None:
                     log.warning(
                         "Order-{order_id}: "
                         "unknown order status: {order_status}.".format(
                             order_id=ib_order_id,
                             order_status=open_order_state.m_status))
+                else:
+                    zp_order.status = zp_status
 
             if ib_order_id in self._tws.order_statuses:
                 order_status = self._tws.order_statuses[ib_order_id]
