@@ -16,7 +16,7 @@ from zipline.errors import (
     UnsupportedDataType,
     NoFurtherDataError,
 )
-from zipline.utils.control_flow import nullctx
+from zipline.utils.context_tricks import nop_context
 from zipline.utils.input_validation import expect_types
 from zipline.utils.sharedoc import (
     format_docstring,
@@ -106,7 +106,7 @@ class CustomTermMixin(object):
 
     Used by CustomFactor, CustomFilter, CustomClassifier, etc.
     """
-    ctx = nullctx()
+    ctx = nop_context
 
     def __new__(cls,
                 inputs=NotSpecified,
@@ -144,7 +144,11 @@ class CustomTermMixin(object):
         """
         Override this method with a function that writes a value into `out`.
         """
-        raise NotImplementedError()
+        raise NotImplementedError(
+            "{name} must define a compute method".format(
+                name=type(self).__name__
+            )
+        )
 
     def _allocate_output(self, windows, shape):
         """
@@ -215,8 +219,10 @@ class CustomTermMixin(object):
                 out[idx][out_mask] = out_row
         return out
 
-    def short_repr(self):
-        return type(self).__name__ + '(%d)' % self.window_length
+    def graph_repr(self):
+        """Short repr to use when rendering Pipeline graphs."""
+        return type(self).__name__ + ':\l  window_length: %d\l' % \
+            self.window_length
 
 
 class LatestMixin(SingleInputMixin):
@@ -239,6 +245,9 @@ class LatestMixin(SingleInputMixin):
                     actual=self.inputs[0].dtype,
                 )
             )
+
+    def graph_repr(self):
+        return "Latest"
 
 
 class AliasedMixin(SingleInputMixin):
@@ -279,7 +288,8 @@ class AliasedMixin(SingleInputMixin):
             name=self.name,
         )
 
-    def short_repr(self):
+    def graph_repr(self):
+        """Short repr to use when rendering Pipeline graphs."""
         return self.name
 
     @classmethod
@@ -386,7 +396,7 @@ class DownsampledMixin(StandardOutputs):
         try:
             current_start_pos = all_dates.get_loc(start_date) - min_extra_rows
             if current_start_pos < 0:
-                raise NoFurtherDataError(
+                raise NoFurtherDataError.from_lookback_window(
                     initial_message="Insufficient data to compute Pipeline:",
                     first_date=all_dates[0],
                     lookback_start=start_date,

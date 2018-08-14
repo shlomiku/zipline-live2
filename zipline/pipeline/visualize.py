@@ -174,10 +174,7 @@ def writeln(f, s):
 
 def fmt(obj):
     if isinstance(obj, Term):
-        if hasattr(obj, 'short_repr'):
-            r = obj.short_repr()
-        else:
-            r = type(obj).__name__
+        r = obj.graph_repr()
     else:
         r = obj
     return '"%s"' % r
@@ -219,8 +216,8 @@ def format_attrs(attrs):
     """
     Format key, value pairs from attrs into graphviz attrs format
 
-    Example
-    -------
+    Examples
+    --------
     >>> format_attrs({'key1': 'value1', 'key2': 'value2'})  # doctest: +SKIP
     '[key1=value1, key2=value2]'
     """

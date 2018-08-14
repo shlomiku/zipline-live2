@@ -1,13 +1,12 @@
 """
 Base class for Pipeline API unit tests.
 """
-from functools import wraps
-
 import numpy as np
 from numpy import arange, prod
 from pandas import DataFrame, Timestamp
 from six import iteritems
 
+from zipline.utils.compat import wraps
 from zipline.pipeline.engine import SimplePipelineEngine
 from zipline.pipeline import ExecutionPlan
 from zipline.pipeline.term import AssetExists, InputDates
@@ -66,6 +65,8 @@ class BasePipelineTestCase(WithTradingSessions,
         cls.default_asset_exists_mask = cls.asset_finder.lifetimes(
             cls.nyse_sessions[-30:],
             include_start_date=False,
+            # TODO: update this when we add domains.
+            country_codes={'??', 'US'},
         )
 
     @property

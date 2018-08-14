@@ -16,7 +16,6 @@ import warnings
 from contextlib import contextmanager
 from functools import wraps
 
-from pandas.tslib import normalize_date
 import pandas as pd
 import numpy as np
 
@@ -24,11 +23,13 @@ from six import iteritems, PY2, string_types
 from cpython cimport bool
 from collections import Iterable
 
-from zipline.assets import (Asset,
-                            AssetConvertible,
-                            PricingDataAssociable,
-                            Future)
+from zipline.assets import (
+    AssetConvertible,
+    PricingDataAssociable,
+)
+from zipline.assets._assets cimport Asset, Future
 from zipline.assets.continuous_futures import ContinuousFuture
+from zipline.utils.pandas_utils import normalize_date
 from zipline.zipline_warnings import ZiplineDeprecationWarning
 
 
@@ -501,7 +502,7 @@ cdef class BarData:
             # asset isn't alive
             return False
 
-        if asset.auto_close_date and session_label >= asset.auto_close_date:
+        if asset.auto_close_date and session_label > asset.auto_close_date:
             return False
 
         if not self._daily_mode:
@@ -933,4 +934,37 @@ cdef class SidView:
             msg,
             category=ZiplineDeprecationWarning,
             stacklevel=1
+        )
+
+
+cdef class InnerPosition:
+    """The real values of a position.
+
+    This exists to be owned by both a
+    :class:`zipline.finance.position.Position` and a
+    :class:`zipline.protocol.Position` at the same time without a cycle.
+    """
+    def __init__(self,
+                 asset,
+                 amount=0,
+                 cost_basis=0.0,
+                 last_sale_price=0.0,
+                 last_sale_date=None):
+        self.asset = asset
+        self.amount = amount
+        self.cost_basis = cost_basis  # per share
+        self.last_sale_price = last_sale_price
+        self.last_sale_date = last_sale_date
+
+    def __repr__(self):
+        return (
+            '%s(asset=%r, amount=%r, cost_basis=%r,'
+            ' last_sale_price=%r, last_sale_date=%r)' % (
+                type(self).__name__,
+                self.asset,
+                self.amount,
+                self.cost_basis,
+                self.last_sale_price,
+                self.last_sale_date,
+            )
         )

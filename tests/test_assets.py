@@ -19,7 +19,9 @@ Tests for the zipline.assets package
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import partial
+import os
 import pickle
+import string
 import sys
 from types import GetSetDescriptorType
 from unittest import TestCase
@@ -27,14 +29,15 @@ import uuid
 import warnings
 
 from nose_parameterized import parameterized
+import numpy as np
 from numpy import full, int32, int64
 import pandas as pd
-from pandas.util.testing import assert_frame_equal
-from six import PY2, viewkeys
+from six import viewkeys
 import sqlalchemy as sa
 
 from zipline.assets import (
     Asset,
+    ExchangeInfo,
     Equity,
     Future,
     AssetDBWriter,
@@ -46,7 +49,7 @@ from zipline.assets.synthetic import (
     make_simple_equity_info,
 )
 from six import itervalues, integer_types
-from toolz import valmap
+from toolz import valmap, concat
 
 from zipline.assets.asset_writer import (
     check_version_info,
@@ -75,13 +78,16 @@ from zipline.testing import (
     all_subindices,
     empty_assets_db,
     parameter_space,
+    powerset,
     tmp_assets_db,
+    tmp_asset_finder,
 )
-from zipline.testing.predicates import assert_equal
+from zipline.testing.predicates import assert_equal, assert_not_equal
 from zipline.testing.fixtures import (
     WithAssetFinder,
     ZiplineTestCase,
     WithTradingCalendars,
+    WithTmpDir,
 )
 from zipline.utils.range import range
 
@@ -241,19 +247,26 @@ class AssetTestCase(TestCase):
         1337,
         symbol="DOGE",
         asset_name="DOGECOIN",
-        start_date=pd.Timestamp('2013-12-08 9:31AM', tz='UTC'),
-        end_date=pd.Timestamp('2014-06-25 11:21AM', tz='UTC'),
-        first_traded=pd.Timestamp('2013-12-08 9:31AM', tz='UTC'),
-        auto_close_date=pd.Timestamp('2014-06-26 11:21AM', tz='UTC'),
-        exchange='THE MOON',
+        start_date=pd.Timestamp('2013-12-08 9:31', tz='UTC'),
+        end_date=pd.Timestamp('2014-06-25 11:21', tz='UTC'),
+        first_traded=pd.Timestamp('2013-12-08 9:31', tz='UTC'),
+        auto_close_date=pd.Timestamp('2014-06-26 11:21', tz='UTC'),
+        exchange_info=ExchangeInfo('THE MOON', 'MOON', '??'),
     )
 
-    asset3 = Asset(3, exchange="test")
-    asset4 = Asset(4, exchange="test")
-    asset5 = Asset(5, exchange="still testing")
+    test_exchange = ExchangeInfo('test full', 'test', '??')
+    asset3 = Asset(3, exchange_info=test_exchange)
+    asset4 = Asset(4, exchange_info=test_exchange)
+    asset5 = Asset(
+        5,
+        exchange_info=ExchangeInfo('still testing', 'still testing', '??'),
+    )
 
     def test_asset_object(self):
-        the_asset = Asset(5061, exchange="bar")
+        the_asset = Asset(
+            5061,
+            exchange_info=ExchangeInfo('bar', 'bar', '??'),
+        )
 
         self.assertEquals({5061: 'foo'}[the_asset], 'foo')
         self.assertEquals(the_asset, 5061)
@@ -280,8 +293,8 @@ class AssetTestCase(TestCase):
 
     def test_asset_comparisons(self):
 
-        s_23 = Asset(23, exchange="test")
-        s_24 = Asset(24, exchange="test")
+        s_23 = Asset(23, exchange_info=self.test_exchange)
+        s_24 = Asset(24, exchange_info=self.test_exchange)
 
         self.assertEqual(s_23, s_23)
         self.assertEqual(s_23, 23)
@@ -379,30 +392,9 @@ class TestFuture(WithAssetFinder, ZiplineTestCase):
         cls.future = cls.asset_finder.lookup_future_symbol('OMH15')
         cls.future2 = cls.asset_finder.lookup_future_symbol('CLG06')
 
-    def test_str(self):
-        strd = str(self.future)
-        self.assertEqual("Future(2468 [OMH15])", strd)
-
     def test_repr(self):
         reprd = repr(self.future)
-        self.assertIn("Future", reprd)
-        self.assertIn("2468", reprd)
-        self.assertIn("OMH15", reprd)
-        self.assertIn("root_symbol=%s'OM'" % ('u' if PY2 else ''), reprd)
-        self.assertIn(
-            "notice_date=Timestamp('2014-01-20 00:00:00+0000', tz='UTC')",
-            reprd,
-        )
-        self.assertIn(
-            "expiration_date=Timestamp('2014-02-20 00:00:00+0000'",
-            reprd,
-        )
-        self.assertIn(
-            "auto_close_date=Timestamp('2014-01-18 00:00:00+0000'",
-            reprd,
-        )
-        self.assertIn("tick_size=0.01", reprd)
-        self.assertIn("multiplier=500", reprd)
+        self.assertEqual("Future(2468 [OMH15])", reprd)
 
     def test_reduce(self):
         assert_equal(
@@ -753,7 +745,7 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
             str(e.exception),
             "Ambiguous ownership for 1 symbol, multiple assets held the"
             " following symbols:\n"
-            "MULTIPLE:\n"
+            "MULTIPLE (??):\n"
             "  intersections: (('2010-01-01 00:00:00', '2012-01-01 00:00:00'),"
             " ('2011-01-01 00:00:00', '2012-01-01 00:00:00'))\n"
             "      start_date   end_date\n"
@@ -922,7 +914,7 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         # Build an asset with an end_date
         eq_end = pd.Timestamp('2012-01-01', tz='UTC')
         equity_asset = Equity(1, symbol="TESTEQ", end_date=eq_end,
-                              exchange="TEST")
+                              exchange_info=ExchangeInfo("TEST", "TEST", "??"))
 
         # Catch all warnings
         with warnings.catch_warnings(record=True) as w:
@@ -941,17 +933,18 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         # Build an empty finder and some Assets
         dt = pd.Timestamp('2014-01-01', tz='UTC')
         finder = self.asset_finder
-        asset1 = Equity(1, symbol="AAPL", exchange="TEST")
-        asset2 = Equity(2, symbol="GOOG", exchange="TEST")
-        asset200 = Future(200, symbol="CLK15", exchange="TEST")
-        asset201 = Future(201, symbol="CLM15", exchange="TEST")
+        exchange_info = ExchangeInfo("TEST FULL", "TEST", "??")
+        asset1 = Equity(1, symbol="AAPL", exchange_info=exchange_info)
+        asset2 = Equity(2, symbol="GOOG", exchange_info=exchange_info)
+        asset200 = Future(200, symbol="CLK15", exchange_info=exchange_info)
+        asset201 = Future(201, symbol="CLM15", exchange_info=exchange_info)
 
         # Check for correct mapping and types
         pre_map = [asset1, asset2, asset200, asset201]
         post_map = finder.map_identifier_index_to_sids(pre_map, dt)
         self.assertListEqual([1, 2, 200, 201], post_map)
         for sid in post_map:
-            self.assertIsInstance(sid, int)
+            self.assertIsInstance(sid, integer_types)
 
         # Change order and check mapping again
         pre_map = [asset201, asset2, asset200, asset1]
@@ -959,41 +952,77 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
         self.assertListEqual([201, 2, 200, 1], post_map)
 
     def test_compute_lifetimes(self):
-        num_assets = 4
+        assets_per_exchange = 4
         trading_day = self.trading_calendar.day
         first_start = pd.Timestamp('2015-04-01', tz='UTC')
 
-        frame = make_rotating_equity_info(
-            num_assets=num_assets,
-            first_start=first_start,
-            frequency=trading_day,
-            periods_between_starts=3,
-            asset_lifetime=5
+        equities = pd.concat(
+            [
+                make_rotating_equity_info(
+                    num_assets=assets_per_exchange,
+                    first_start=first_start,
+                    frequency=trading_day,
+                    periods_between_starts=3,
+                    asset_lifetime=5,
+                    exchange=exchange,
+                )
+                for exchange in (
+                    'US_EXCHANGE_1',
+                    'US_EXCHANGE_2',
+                    'CA_EXCHANGE',
+                    'JP_EXCHANGE',
+                )
+            ],
+            ignore_index=True,
         )
-        self.write_assets(equities=frame)
+        # make every symbol unique
+        equities['symbol'] = list(string.ascii_uppercase[:len(equities)])
+
+        # shuffle up the sids so they are not contiguous per exchange
+        sids = np.arange(len(equities))
+        np.random.RandomState(1337).shuffle(sids)
+        equities.index = sids
+        permute_sid = dict(zip(sids, range(len(sids)))).__getitem__
+
+        exchanges = pd.DataFrame.from_records([
+            {'exchange': 'US_EXCHANGE_1', 'country_code': 'US'},
+            {'exchange': 'US_EXCHANGE_2', 'country_code': 'US'},
+            {'exchange': 'CA_EXCHANGE', 'country_code': 'CA'},
+            {'exchange': 'JP_EXCHANGE', 'country_code': 'JP'},
+        ])
+        sids_by_country = {
+            'US': equities.index[:2 * assets_per_exchange],
+            'CA': equities.index[
+                2 * assets_per_exchange:3 * assets_per_exchange
+            ],
+            'JP': equities.index[3 * assets_per_exchange:],
+        }
+        self.write_assets(equities=equities, exchanges=exchanges)
         finder = self.asset_finder
 
         all_dates = pd.date_range(
             start=first_start,
-            end=frame.end_date.max(),
+            end=equities.end_date.max(),
             freq=trading_day,
         )
 
         for dates in all_subindices(all_dates):
             expected_with_start_raw = full(
-                shape=(len(dates), num_assets),
+                shape=(len(dates), assets_per_exchange),
                 fill_value=False,
                 dtype=bool,
             )
             expected_no_start_raw = full(
-                shape=(len(dates), num_assets),
+                shape=(len(dates), assets_per_exchange),
                 fill_value=False,
                 dtype=bool,
             )
 
             for i, date in enumerate(dates):
-                it = frame[['start_date', 'end_date']].itertuples()
-                for j, start, end in it:
+                it = equities.iloc[:4][['start_date', 'end_date']].itertuples(
+                    index=False,
+                )
+                for j, (start, end) in enumerate(it):
                     # This way of doing the checks is redundant, but very
                     # clear.
                     if start <= date <= end:
@@ -1001,21 +1030,48 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
                         if start < date:
                             expected_no_start_raw[i, j] = True
 
-            expected_with_start = pd.DataFrame(
-                data=expected_with_start_raw,
-                index=dates,
-                columns=frame.index.values,
-            )
-            result = finder.lifetimes(dates, include_start_date=True)
-            assert_frame_equal(result, expected_with_start)
+            for country_codes in powerset(exchanges.country_code.unique()):
+                expected_sids = pd.Int64Index(sorted(concat(
+                    sids_by_country[country_code]
+                    for country_code in country_codes
+                )))
+                permuted_sids = [
+                    sid for sid in sorted(expected_sids, key=permute_sid)
+                ]
+                tile_count = len(country_codes) + ('US' in country_codes)
+                expected_with_start = pd.DataFrame(
+                    data=np.tile(
+                        expected_with_start_raw,
+                        tile_count,
+                    ),
+                    index=dates,
+                    columns=pd.Int64Index(permuted_sids),
+                )
+                result = finder.lifetimes(
+                    dates,
+                    include_start_date=True,
+                    country_codes=country_codes,
+                )
+                assert_equal(result.columns, expected_sids)
+                result = result[permuted_sids]
+                assert_equal(result, expected_with_start)
 
-            expected_no_start = pd.DataFrame(
-                data=expected_no_start_raw,
-                index=dates,
-                columns=frame.index.values,
-            )
-            result = finder.lifetimes(dates, include_start_date=False)
-            assert_frame_equal(result, expected_no_start)
+                expected_no_start = pd.DataFrame(
+                    data=np.tile(
+                        expected_no_start_raw,
+                        tile_count,
+                    ),
+                    index=dates,
+                    columns=pd.Int64Index(permuted_sids),
+                )
+                result = finder.lifetimes(
+                    dates,
+                    include_start_date=False,
+                    country_codes=country_codes,
+                )
+                assert_equal(result.columns, expected_sids)
+                result = result[permuted_sids]
+                assert_equal(result, expected_no_start)
 
     def test_sids(self):
         # Ensure that the sids property of the AssetFinder is functioning
@@ -1395,6 +1451,509 @@ class AssetFinderTestCase(WithTradingCalendars, ZiplineTestCase):
             )
 
 
+class AssetFinderMultipleCountries(WithTradingCalendars, ZiplineTestCase):
+    def write_assets(self, **kwargs):
+        self._asset_writer.write(**kwargs)
+
+    def init_instance_fixtures(self):
+        super(AssetFinderMultipleCountries, self).init_instance_fixtures()
+
+        conn = self.enter_instance_context(empty_assets_db())
+        self._asset_writer = AssetDBWriter(conn)
+        self.asset_finder = AssetFinder(conn)
+
+    @staticmethod
+    def country_code(n):
+        return 'A' + chr(ord('A') + n)
+
+    def test_lookup_symbol_delimited(self):
+        as_of = pd.Timestamp('2013-01-01', tz='UTC')
+        num_assets = 3
+        sids = list(range(num_assets))
+        frame = pd.DataFrame.from_records(
+            [
+                {
+                    'sid': sid,
+                    'symbol':  'TEST.A',
+                    'company_name': "company %d" % sid,
+                    'start_date': as_of.value,
+                    'end_date': as_of.value,
+                    'exchange': 'EXCHANGE %d' % sid,
+                }
+                for sid in sids
+            ]
+        )
+
+        exchanges = pd.DataFrame({
+            'exchange': frame['exchange'],
+            'country_code': [self.country_code(n) for n in range(num_assets)],
+        })
+        self.write_assets(equities=frame, exchanges=exchanges)
+        finder = self.asset_finder
+        assets = finder.retrieve_all(sids)
+
+        def shouldnt_resolve(ticker):
+            with self.assertRaises(SymbolNotFound):
+                finder.lookup_symbol(ticker, as_of)
+            for n in range(num_assets):
+                with self.assertRaises(SymbolNotFound):
+                    finder.lookup_symbol(
+                        ticker,
+                        as_of,
+                        country_code=self.country_code(n),
+                    )
+
+        # we do it twice to catch caching bugs
+        for _ in range(2):
+            shouldnt_resolve('TEST')
+            shouldnt_resolve('TESTA')
+            # '@' is not a supported delimiter
+            shouldnt_resolve('TEST@A')
+
+            # Adding an unnecessary delimiter shouldn't matter.
+            for delimiter in '-', '/', '_', '.':
+                ticker = 'TEST%sA' % delimiter
+                with self.assertRaises(MultipleSymbolsFound):
+                    finder.lookup_symbol(ticker, as_of)
+
+                for n in range(num_assets):
+                    actual_asset = finder.lookup_symbol(
+                        ticker,
+                        as_of,
+                        country_code=self.country_code(n),
+                    )
+                    assert_equal(actual_asset, assets[n])
+                    assert_equal(
+                        actual_asset.exchange_info.country_code,
+                        self.country_code(n),
+                    )
+
+    def test_lookup_symbol_fuzzy(self):
+        num_countries = 3
+        metadata = pd.DataFrame.from_records([
+            {'symbol': symbol, 'exchange': 'EXCHANGE %d' % n}
+            for n in range(num_countries)
+            for symbol in ('PRTY_HRD', 'BRKA', 'BRK_A')
+        ])
+        exchanges = pd.DataFrame({
+            'exchange': metadata['exchange'].unique(),
+            'country_code': list(map(self.country_code, range(num_countries))),
+        })
+        self.write_assets(equities=metadata, exchanges=exchanges)
+        finder = self.asset_finder
+        dt = pd.Timestamp('2013-01-01', tz='UTC')
+
+        # Try combos of looking up PRTYHRD with and without a time or fuzzy
+        # Both non-fuzzys get no result
+        with self.assertRaises(SymbolNotFound):
+            finder.lookup_symbol('PRTYHRD', None)
+        with self.assertRaises(SymbolNotFound):
+            finder.lookup_symbol('PRTYHRD', dt)
+
+        for n in range(num_countries):
+            # Given that this ticker isn't defined in any country, explicitly
+            # passing a country code should still fail.
+            with self.assertRaises(SymbolNotFound):
+                finder.lookup_symbol(
+                    'PRTYHRD',
+                    None,
+                    country_code=self.country_code(n),
+                )
+            with self.assertRaises(SymbolNotFound):
+                finder.lookup_symbol(
+                    'PRTYHRD',
+                    dt,
+                    country_code=self.country_code(n),
+                )
+
+        with self.assertRaises(MultipleSymbolsFound):
+            finder.lookup_symbol('PRTYHRD', None, fuzzy=True)
+
+        with self.assertRaises(MultipleSymbolsFound):
+            finder.lookup_symbol('PRTYHRD', dt, fuzzy=True)
+
+        def check_sid(expected_sid, ticker, country_code):
+            params = (
+                {'as_of_date': None},
+                {'as_of_date': dt},
+                {'as_of_date': None, 'fuzzy': True},
+                {'as_of_date': dt, 'fuzzy': True},
+            )
+            for extra_params in params:
+                with self.assertRaises(MultipleSymbolsFound):
+                    finder.lookup_symbol(ticker, **extra_params)
+
+                self.assertEqual(
+                    expected_sid,
+                    finder.lookup_symbol(
+                        ticker,
+                        country_code=country_code,
+                        **extra_params
+                    ),
+                )
+
+        for n in range(num_countries):
+            check_sid(n * 3, 'PRTY_HRD', self.country_code(n))
+            check_sid(n * 3 + 1, 'BRKA', self.country_code(n))
+            check_sid(n * 3 + 2, 'BRK_A', self.country_code(n))
+
+    def test_lookup_symbol_change_ticker(self):
+        T = partial(pd.Timestamp, tz='utc')
+        num_countries = 3
+        metadata = pd.DataFrame.from_records(
+            [
+                # first sid per country
+                {
+                    'symbol': 'A',
+                    'asset_name': 'Asset A',
+                    'start_date': T('2014-01-01'),
+                    'end_date': T('2014-01-05'),
+                },
+                {
+                    'symbol': 'B',
+                    'asset_name': 'Asset B',
+                    'start_date': T('2014-01-06'),
+                    'end_date': T('2014-01-10'),
+                },
+
+                # second sid per country
+                {
+                    'symbol': 'C',
+                    'asset_name': 'Asset C',
+                    'start_date': T('2014-01-01'),
+                    'end_date': T('2014-01-05'),
+                },
+                {
+                    'symbol': 'A',  # claiming the unused symbol 'A'
+                    'asset_name': 'Asset A',
+                    'start_date': T('2014-01-06'),
+                    'end_date': T('2014-01-10'),
+                },
+            ] * num_countries,
+            index=np.repeat(np.arange(num_countries * 2), 2),
+        )
+        metadata['exchange'] = np.repeat(
+            ['EXCHANGE %d' % n for n in range(num_countries)],
+            4,
+        )
+        exchanges = pd.DataFrame({
+            'exchange': ['EXCHANGE %d' % n for n in range(num_countries)],
+            'country_code': [
+                self.country_code(n) for n in range(num_countries)
+            ]
+        })
+        self.write_assets(equities=metadata, exchanges=exchanges)
+        finder = self.asset_finder
+
+        def assert_doesnt_resolve(symbol, as_of_date):
+            # check across all countries
+            with self.assertRaises(SymbolNotFound):
+                finder.lookup_symbol(symbol, as_of_date)
+
+            # check in each country individually
+            for n in range(num_countries):
+                with self.assertRaises(SymbolNotFound):
+                    finder.lookup_symbol(
+                        symbol,
+                        as_of_date,
+                        country_code=self.country_code(n),
+                    )
+
+        def assert_resolves_in_each_country(symbol,
+                                            as_of_date,
+                                            sid_from_country_ix,
+                                            expected_symbol,
+                                            expected_name):
+            # ensure this is ambiguous across all countries
+            with self.assertRaises(MultipleSymbolsFound):
+                finder.lookup_symbol(symbol, as_of_date)
+
+            for n in range(num_countries):
+                result = finder.lookup_symbol(
+                    symbol,
+                    as_of_date,
+                    country_code=self.country_code(n),
+                )
+                assert_equal(
+                    result,
+                    finder.retrieve_asset(sid_from_country_ix(n)),
+                    msg=str(asof),
+                )
+                # The symbol and asset_name should always be the last held
+                # values
+                assert_equal(result.symbol, expected_symbol)
+                assert_equal(result.asset_name, expected_name)
+
+        # note: these assertions walk forward in time, starting at assertions
+        # about ownership before the start_date and ending with assertions
+        # after the end_date; new assertions should be inserted in the correct
+        # locations
+
+        # no one held 'A' before 01
+        assert_doesnt_resolve('A', T('2013-12-31'))
+
+        # no one held 'C' before 01
+        assert_doesnt_resolve('C', T('2013-12-31'))
+
+        for asof in pd.date_range('2014-01-01', '2014-01-05', tz='utc'):
+            # from 01 through 05 the first sid on the exchange held 'A'
+            assert_resolves_in_each_country(
+                'A',
+                asof,
+                sid_from_country_ix=lambda n: n * 2,
+                expected_symbol='B',
+                expected_name='Asset B',
+            )
+
+            # from 01 through 05 the second sid on the exchange held 'C'
+            assert_resolves_in_each_country(
+                'C',
+                asof,
+                sid_from_country_ix=lambda n: n * 2 + 1,
+                expected_symbol='A',
+                expected_name='Asset A',
+            )
+
+        # no one held 'B' before 06
+        assert_doesnt_resolve('B', T('2014-01-05'))
+
+        # no one held 'C' after 06, however, no one has claimed it yet
+        # so it still maps to sid 1
+        assert_resolves_in_each_country(
+            'C',
+            T('2014-01-07'),
+            sid_from_country_ix=lambda n: n * 2 + 1,
+            expected_symbol='A',
+            expected_name='Asset A',
+        )
+
+        for asof in pd.date_range('2014-01-06', '2014-01-11', tz='utc'):
+            # from 06 through 10 sid 0 held 'B'
+            # we test through the 11th because sid 1 is the last to hold 'B'
+            # so it should ffill
+            assert_resolves_in_each_country(
+                'B',
+                asof,
+                sid_from_country_ix=lambda n: n * 2,
+                expected_symbol='B',
+                expected_name='Asset B',
+            )
+
+            # from 06 through 10 sid 1 held 'A'
+            # we test through the 11th because sid 1 is the last to hold 'A'
+            # so it should ffill
+            assert_resolves_in_each_country(
+                'A',
+                asof,
+                sid_from_country_ix=lambda n: n * 2 + 1,
+                expected_symbol='A',
+                expected_name='Asset A',
+            )
+
+    def test_lookup_symbol(self):
+        num_countries = 3
+        # Incrementing by two so that start and end dates for each
+        # generated Asset don't overlap (each Asset's end_date is the
+        # day after its start date.)
+        dates = pd.date_range('2013-01-01', freq='2D', periods=5, tz='UTC')
+        df = pd.DataFrame.from_records(
+            [
+                {
+                    'sid': n * len(dates) + i,
+                    'symbol':  'existing',
+                    'start_date': date.value,
+                    'end_date': (date + timedelta(days=1)).value,
+                    'exchange': 'EXCHANGE %d' % n,
+                }
+                for n in range(num_countries)
+                for i, date in enumerate(dates)
+            ]
+        )
+        exchanges = pd.DataFrame({
+            'exchange': ['EXCHANGE %d' % n for n in range(num_countries)],
+            'country_code': [
+                self.country_code(n) for n in range(num_countries)
+            ],
+        })
+        self.write_assets(equities=df, exchanges=exchanges)
+        finder = self.asset_finder
+        for _ in range(2):  # Run checks twice to test for caching bugs.
+            with self.assertRaises(SymbolNotFound):
+                finder.lookup_symbol('NON_EXISTING', dates[0])
+            for n in range(num_countries):
+                with self.assertRaises(SymbolNotFound):
+                    finder.lookup_symbol(
+                        'NON_EXISTING',
+                        dates[0],
+                        country_code=self.country_code(n),
+                    )
+
+            with self.assertRaises(MultipleSymbolsFound):
+                finder.lookup_symbol('EXISTING', None)
+
+            for n in range(num_countries):
+                with self.assertRaises(MultipleSymbolsFound):
+                    finder.lookup_symbol(
+                        'EXISTING',
+                        None,
+                        country_code=self.country_code(n),
+                    )
+
+            for i, date in enumerate(dates):
+                # Verify that we correctly resolve multiple symbols using
+                # the supplied date
+                with self.assertRaises(MultipleSymbolsFound):
+                    finder.lookup_symbol('EXISTING', date)
+
+                for n in range(num_countries):
+                    result = finder.lookup_symbol(
+                        'EXISTING',
+                        date,
+                        country_code=self.country_code(n),
+                    )
+                    self.assertEqual(result.symbol, 'EXISTING')
+                    expected_sid = n * len(dates) + i
+                    self.assertEqual(result.sid, expected_sid)
+
+    def test_fail_to_write_overlapping_data(self):
+        num_countries = 3
+        df = pd.DataFrame.from_records(concat(
+            [
+                {
+                    'sid': n * 3,
+                    'symbol': 'multiple',
+                    'start_date': pd.Timestamp('2010-01-01'),
+                    'end_date': pd.Timestamp('2012-01-01'),
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+                # Same as asset 1, but with a later end date.
+                {
+                    'sid': n * 3 + 1,
+                    'symbol': 'multiple',
+                    'start_date': pd.Timestamp('2010-01-01'),
+                    'end_date': pd.Timestamp('2013-01-01'),
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+                # Same as asset 1, but with a later start_date
+                {
+                    'sid': n * 3 + 2,
+                    'symbol': 'multiple',
+                    'start_date': pd.Timestamp('2011-01-01'),
+                    'end_date': pd.Timestamp('2012-01-01'),
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+            ]
+            for n in range(num_countries)
+        ))
+        exchanges = pd.DataFrame({
+            'exchange': ['EXCHANGE %d' % n for n in range(num_countries)],
+            'country_code': [
+                self.country_code(n) for n in range(num_countries)
+            ],
+        })
+
+        with self.assertRaises(ValueError) as e:
+            self.write_assets(equities=df, exchanges=exchanges)
+
+        expected_error_msg = (
+            "Ambiguous ownership for 3 symbols, multiple assets held the"
+            " following symbols:\n"
+            "MULTIPLE (%s):\n"
+            "  intersections: (('2010-01-01 00:00:00', '2012-01-01 00:00:00'),"
+            " ('2011-01-01 00:00:00', '2012-01-01 00:00:00'))\n"
+            "      start_date   end_date\n"
+            "  sid                      \n"
+            "  0   2010-01-01 2012-01-01\n"
+            "  1   2010-01-01 2013-01-01\n"
+            "  2   2011-01-01 2012-01-01\n"
+            "MULTIPLE (%s):\n"
+            "  intersections: (('2010-01-01 00:00:00', '2012-01-01 00:00:00'),"
+            " ('2011-01-01 00:00:00', '2012-01-01 00:00:00'))\n"
+            "      start_date   end_date\n"
+            "  sid                      \n"
+            "  3   2010-01-01 2012-01-01\n"
+            "  4   2010-01-01 2013-01-01\n"
+            "  5   2011-01-01 2012-01-01\n"
+            "MULTIPLE (%s):\n"
+            "  intersections: (('2010-01-01 00:00:00', '2012-01-01 00:00:00'),"
+            " ('2011-01-01 00:00:00', '2012-01-01 00:00:00'))\n"
+            "      start_date   end_date\n"
+            "  sid                      \n"
+            "  6   2010-01-01 2012-01-01\n"
+            "  7   2010-01-01 2013-01-01\n"
+            "  8   2011-01-01 2012-01-01" % (
+                self.country_code(0),
+                self.country_code(1),
+                self.country_code(2),
+            )
+        )
+        self.assertEqual(str(e.exception), expected_error_msg)
+
+    def test_endless_multiple_resolves(self):
+        """
+        Situation:
+        1. Asset 1 w/ symbol FOOB changes to FOO_B, and then is delisted.
+        2. Asset 2 is listed with symbol FOO_B.
+
+        If someone asks for FOO_B with fuzzy matching after 2 has been listed,
+        they should be able to correctly get 2.
+        """
+
+        date = pd.Timestamp('2013-01-01', tz='UTC')
+        num_countries = 3
+        df = pd.DataFrame.from_records(concat(
+            [
+                {
+                    'sid': n * 2,
+                    'symbol': 'FOOB',
+                    'start_date': date.value,
+                    'end_date': date.max.value,
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+                {
+                    'sid': n * 2,
+                    'symbol': 'FOO_B',
+                    'start_date': (date + timedelta(days=31)).value,
+                    'end_date': (date + timedelta(days=60)).value,
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+                {
+                    'sid': n * 2 + 1,
+                    'symbol': 'FOO_B',
+                    'start_date': (date + timedelta(days=61)).value,
+                    'end_date': date.max.value,
+                    'exchange': 'EXCHANGE %d' % n,
+                },
+
+            ]
+            for n in range(num_countries)
+        ))
+        exchanges = pd.DataFrame({
+            'exchange': ['EXCHANGE %d' % n for n in range(num_countries)],
+            'country_code': [
+                self.country_code(n) for n in range(num_countries)
+            ],
+        })
+        self.write_assets(equities=df, exchanges=exchanges)
+        finder = self.asset_finder
+
+        with self.assertRaises(MultipleSymbolsFound):
+            finder.lookup_symbol(
+                'FOO/B',
+                date + timedelta(days=90),
+                fuzzy=True,
+            )
+
+        for n in range(num_countries):
+            result = finder.lookup_symbol(
+                'FOO/B',
+                date + timedelta(days=90),
+                fuzzy=True,
+                country_code=self.country_code(n)
+            )
+            self.assertEqual(result.sid, n * 2 + 1)
+
+
 class TestAssetDBVersioning(ZiplineTestCase):
 
     def init_instance_fixtures(self):
@@ -1501,17 +2060,18 @@ class TestAssetDBVersioning(ZiplineTestCase):
 
     def test_v5_to_v4_selects_most_recent_ticker(self):
         T = pd.Timestamp
-        AssetDBWriter(self.engine).write(
-            equities=pd.DataFrame(
-                [['A', 'A', T('2014-01-01'), T('2014-01-02')],
-                 ['B', 'B', T('2014-01-01'), T('2014-01-02')],
-                 # these two are both ticker sid 2
-                 ['B', 'C', T('2014-01-03'), T('2014-01-04')],
-                 ['C', 'C', T('2014-01-01'), T('2014-01-02')]],
-                index=[0, 1, 2, 2],
-                columns=['symbol', 'asset_name', 'start_date', 'end_date'],
-            ),
+        equities = pd.DataFrame(
+            [['A', 'A', T('2014-01-01'), T('2014-01-02')],
+             ['B', 'B', T('2014-01-01'), T('2014-01-02')],
+             # these two are both ticker sid 2
+             ['B', 'C', T('2014-01-03'), T('2014-01-04')],
+             ['C', 'C', T('2014-01-01'), T('2014-01-02')]],
+            index=[0, 1, 2, 2],
+            columns=['symbol', 'asset_name', 'start_date', 'end_date'],
         )
+        equities['exchange'] = 'NYSE'
+
+        AssetDBWriter(self.engine).write(equities=equities)
 
         downgrade(self.engine, 4)
         metadata = sa.MetaData(self.engine)
@@ -1532,6 +2092,37 @@ class TestAssetDBVersioning(ZiplineTestCase):
 
         assert_equal(expected_data, actual_data)
 
+    def test_v7_to_v6_only_keeps_US(self):
+        T = pd.Timestamp
+        equities = pd.DataFrame(
+            [['A', T('2014-01-01'), T('2014-01-02'), 'NYSE'],
+             ['B', T('2014-01-01'), T('2014-01-02'), 'JPX'],
+             ['C', T('2014-01-03'), T('2014-01-04'), 'NYSE'],
+             ['D', T('2014-01-01'), T('2014-01-02'), 'JPX']],
+            index=[0, 1, 2, 3],
+            columns=['symbol', 'start_date', 'end_date', 'exchange'],
+        )
+        exchanges = pd.DataFrame.from_records([
+            {'exchange': 'NYSE', 'country_code': 'US'},
+            {'exchange': 'JPX', 'country_code': 'JP'},
+        ])
+        AssetDBWriter(self.engine).write(
+            equities=equities,
+            exchanges=exchanges,
+        )
+
+        downgrade(self.engine, 6)
+        metadata = sa.MetaData(self.engine)
+        metadata.reflect()
+
+        expected_sids = {0, 2}
+        actual_sids = set(map(
+            lambda r: r.sid,
+            sa.select(metadata.tables['equities'].c).execute(),
+        ))
+
+        assert_equal(expected_sids, actual_sids)
+
 
 class TestVectorizedSymbolLookup(WithAssetFinder, ZiplineTestCase):
 
@@ -1546,7 +2137,6 @@ class TestVectorizedSymbolLookup(WithAssetFinder, ZiplineTestCase):
                 start_date=T(start_date),
                 end_date=T(end_date),
                 exchange='NYSE',
-                exchange_full='NYSE',
             )
 
         records = [
@@ -1606,3 +2196,93 @@ class TestVectorizedSymbolLookup(WithAssetFinder, ZiplineTestCase):
             results,
             [af.lookup_symbol(sym, dt, fuzzy=True) for sym in syms],
         )
+
+
+class TestAssetFinderPreprocessors(WithTmpDir, ZiplineTestCase):
+
+    def test_asset_finder_doesnt_silently_create_useless_empty_files(self):
+        nonexistent_path = self.tmpdir.getpath(self.id() + '__nothing_here')
+
+        with self.assertRaises(ValueError) as e:
+            AssetFinder(nonexistent_path)
+        expected = "SQLite file {!r} doesn't exist.".format(nonexistent_path)
+        self.assertEqual(str(e.exception), expected)
+
+        # sqlite3.connect will create an empty file if you connect somewhere
+        # nonexistent. Test that we don't do that.
+        self.assertFalse(os.path.exists(nonexistent_path))
+
+
+class TestExchangeInfo(ZiplineTestCase):
+    def test_equality(self):
+        a = ExchangeInfo('FULL NAME', 'E', 'US')
+        b = ExchangeInfo('FULL NAME', 'E', 'US')
+
+        assert_equal(a, b)
+
+        # same full name but different canonical name
+        c = ExchangeInfo('FULL NAME', 'NOT E', 'US')
+        assert_not_equal(c, a)
+
+        # same canonical name but different full name
+        d = ExchangeInfo('DIFFERENT FULL NAME', 'E', 'US')
+        assert_not_equal(d, a)
+
+        # same names but different country
+
+        e = ExchangeInfo('FULL NAME', 'E', 'JP')
+        assert_not_equal(e, a)
+
+    def test_repr(self):
+        e = ExchangeInfo('FULL NAME', 'E', 'US')
+        assert_equal(repr(e), "ExchangeInfo('FULL NAME', 'E', 'US')")
+
+    def test_read_from_asset_finder(self):
+        sids = list(range(8))
+        exchange_names = [
+            'NEW YORK STOCK EXCHANGE',
+            'NEW YORK STOCK EXCHANGE',
+            'NASDAQ STOCK MARKET',
+            'NASDAQ STOCK MARKET',
+            'TOKYO STOCK EXCHANGE',
+            'TOKYO STOCK EXCHANGE',
+            'OSAKA STOCK EXCHANGE',
+            'OSAKA STOCK EXCHANGE',
+        ]
+        equities = pd.DataFrame({
+            'sid': sids,
+            'exchange': exchange_names,
+            'symbol': [chr(65 + sid) for sid in sids],
+        })
+        exchange_infos = [
+            ExchangeInfo('NEW YORK STOCK EXCHANGE', 'NYSE', 'US'),
+            ExchangeInfo('NASDAQ STOCK MARKET', 'NYSE', 'US'),
+            ExchangeInfo('TOKYO STOCK EXCHANGE', 'JPX', 'JP'),
+            ExchangeInfo('OSAKA STOCK EXCHANGE', 'JPX', 'JP'),
+        ]
+        exchange_info_table = pd.DataFrame(
+            [
+                (info.name, info.canonical_name, info.country_code)
+                for info in exchange_infos
+            ],
+            columns=['exchange', 'canonical_name', 'country_code'],
+        )
+        expected_exchange_info_map = {
+            info.name: info for info in exchange_infos
+        }
+
+        ctx = tmp_asset_finder(
+            equities=equities,
+            exchanges=exchange_info_table,
+        )
+        with ctx as af:
+            actual_exchange_info_map = af.exchange_info
+            assets = af.retrieve_all(sids)
+
+        assert_equal(actual_exchange_info_map, expected_exchange_info_map)
+
+        for asset in assets:
+            expected_exchange_info = expected_exchange_info_map[
+                exchange_names[asset.sid]
+            ]
+            assert_equal(asset.exchange_info, expected_exchange_info)

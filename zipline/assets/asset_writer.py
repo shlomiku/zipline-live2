@@ -30,7 +30,7 @@ from zipline.assets.asset_db_schema import (
     equity_symbol_mappings,
     equity_supplementary_mappings as equity_supplementary_mappings_table,
     futures_contracts as futures_contracts_table,
-    futures_exchanges,
+    exchanges as exchanges_table,
     futures_root_symbols,
     metadata,
     version_info,
@@ -61,56 +61,65 @@ symbol_columns = frozenset({
 })
 mapping_columns = symbol_columns | {'start_date', 'end_date'}
 
+
+def _default_none(df, column):
+    return None
+
+
+def _no_default(df, column):
+    if not df.empty:
+        raise ValueError('no default value for column %r' % column)
+
+
 # Default values for the equities DataFrame
 _equities_defaults = {
-    'symbol': None,
-    'asset_name': None,
-    'start_date': 0,
-    'end_date': 2 ** 62 - 1,
-    'first_traded': None,
-    'auto_close_date': None,
-    # the canonical exchange name, like "NYSE"
-    'exchange': None,
-    # optional, something like "New York Stock Exchange"
-    'exchange_full': None,
+    'symbol': _default_none,
+    'asset_name': _default_none,
+    'start_date': lambda df, col: 0,
+    'end_date': lambda df, col: np.iinfo(np.int64).max,
+    'first_traded': _default_none,
+    'auto_close_date': _default_none,
+    # the full exchange name
+    'exchange': _no_default,
 }
 
 # Default values for the futures DataFrame
 _futures_defaults = {
-    'symbol': None,
-    'root_symbol': None,
-    'asset_name': None,
-    'start_date': 0,
-    'end_date': 2 ** 62 - 1,
-    'first_traded': None,
-    'exchange': None,
-    'notice_date': None,
-    'expiration_date': None,
-    'auto_close_date': None,
-    'tick_size': None,
-    'multiplier': 1,
+    'symbol': _default_none,
+    'root_symbol': _default_none,
+    'asset_name': _default_none,
+    'start_date': lambda df, col: 0,
+    'end_date': lambda df, col: np.iinfo(np.int64).max,
+    'first_traded': _default_none,
+    'exchange': _default_none,
+    'notice_date': _default_none,
+    'expiration_date': _default_none,
+    'auto_close_date': _default_none,
+    'tick_size': _default_none,
+    'multiplier': lambda df, col: 1,
 }
 
 # Default values for the exchanges DataFrame
 _exchanges_defaults = {
-    'timezone': None,
+    'canonical_name': lambda df, col: df.index,
+    'country_code': lambda df, col: '??',
 }
 
 # Default values for the root_symbols DataFrame
 _root_symbols_defaults = {
-    'root_symbol_id': None,
-    'sector': None,
-    'description': None,
-    'exchange': None,
+    'root_symbol_id': _default_none,
+    'sector': _default_none,
+    'description': _default_none,
+    'exchange': _default_none,
 }
 
 # Default values for the equity_supplementary_mappings DataFrame
 _equity_supplementary_mappings_defaults = {
-    'sid': None,
-    'value': None,
-    'field': None,
-    'start_date': 0,
-    'end_date': 2 ** 62 - 1,
+    'sid': _default_none,
+    'value': _default_none,
+    'field': _default_none,
+    'start_date': lambda df, col: 0,
+    'end_date': lambda df, col: np.iinfo(np.int64).max,
 }
 
 
@@ -173,8 +182,9 @@ def _generate_output_dataframe(data_subset, defaults):
         processed
     defaults : dict
         A dict where the keys are the names of the columns of the desired
-        output DataFrame and the values are the default values to insert in the
-        DataFrame if no user data is provided
+        output DataFrame and the values are a function from dataframe and
+        column name to the default values to insert in the DataFrame if no user
+        data is provided
 
     Returns
     -------
@@ -195,7 +205,7 @@ def _generate_output_dataframe(data_subset, defaults):
     # for which no data has been supplied.
     for col in desired_cols - cols:
         # write the default value for any missing columns
-        data_subset[col] = defaults[col]
+        data_subset[col] = defaults[col](data_subset, col)
 
     return data_subset
 
@@ -215,7 +225,7 @@ def _format_range(r):
     )
 
 
-def _split_symbol_mappings(df):
+def _split_symbol_mappings(df, exchanges):
     """Split out the symbol: sid mappings from the raw data.
 
     Parameters
@@ -232,19 +242,26 @@ def _split_symbol_mappings(df):
         the sid, then there will be three columns: symbol, start_date, and
         end_date.
     """
-    mappings = df[list(mapping_columns)]
+    mappings = df[list(mapping_columns)].copy()
+    mappings['country_code'] = exchanges['country_code'][df['exchange']].values
     ambigious = {}
-    for symbol in mappings.symbol.unique():
-        persymbol = mappings[mappings.symbol == symbol]
+
+    def check_intersections(persymbol):
         intersections = list(intersecting_ranges(map(
             from_tuple,
             zip(persymbol.start_date, persymbol.end_date),
         )))
         if intersections:
-            ambigious[symbol] = (
-                intersections,
-                persymbol[['start_date', 'end_date']].astype('datetime64[ns]'),
-            )
+            data = persymbol[
+                ['start_date', 'end_date']
+            ].astype('datetime64[ns]')
+            # indent the dataframe string, also compute this early because
+            # ``persymbol`` is a view and ``astype`` doesn't copy the index
+            # correctly in pandas 0.22
+            msg_component = '\n  '.join(str(data).splitlines())
+            ambigious[persymbol.name] = intersections, msg_component
+
+    mappings.groupby(['symbol', 'country_code']).apply(check_intersections)
 
     if ambigious:
         raise ValueError(
@@ -253,13 +270,13 @@ def _split_symbol_mappings(df):
                 len(ambigious),
                 '' if len(ambigious) == 1 else 's',
                 '\n'.join(
-                    '%s:\n  intersections: %s\n  %s' % (
+                    '%s (%s):\n  intersections: %s\n  %s' % (
                         symbol,
+                        country_code,
                         tuple(map(_format_range, intersections)),
-                        # indent the dataframe string
-                        '\n  '.join(str(df).splitlines()),
+                        cs,
                     )
-                    for symbol, (intersections, df) in sorted(
+                    for (symbol, country_code), (intersections, cs) in sorted(
                         ambigious.items(),
                         key=first,
                     ),
@@ -358,7 +375,7 @@ class AssetDBWriter(object):
     """
     DEFAULT_CHUNK_SIZE = SQLITE_MAX_VARIABLE_NUMBER
 
-    @preprocess(engine=coerce_string_to_eng)
+    @preprocess(engine=coerce_string_to_eng(require_exists=False))
     def __init__(self, engine):
         self.engine = engine
 
@@ -428,9 +445,11 @@ class AssetDBWriter(object):
             dataframe are:
 
               exchange : str
-                  The name of the exchange.
-              timezone : str
-                  The timezone of the exchange.
+                  The full name of the exchange.
+              canonical_name : str
+                  The canonical name of the exchange.
+              country_code : str
+                  The ISO 3166 alpha-2 country code of the exchange.
         root_symbols : pd.DataFrame, optional
             The root symbols for the futures contracts. The columns for this
             dataframe are:
@@ -457,7 +476,23 @@ class AssetDBWriter(object):
         --------
         zipline.assets.asset_finder
         """
+        if exchanges is None:
+            exchange_names = [
+                df['exchange']
+                for df in (equities, futures, root_symbols)
+                if df is not None
+            ]
+            if exchange_names:
+                exchanges = pd.DataFrame({
+                    'exchange': pd.concat(exchange_names).unique(),
+                })
+
         with self.engine.begin() as conn:
+            # Ensure that the foreign key constraints are enforced on inserts.
+            # The ``foreign_keys`` pragma only applies to a given connection,
+            # not the whole database.
+            # conn.execute('PRAGMA foreign_keys = ON')
+
             # Create SQL tables if they do not exist.
             self.init_db(conn)
 
@@ -475,7 +510,7 @@ class AssetDBWriter(object):
             )
             # Write the data to SQL.
             self._write_df_to_table(
-                futures_exchanges,
+                exchanges_table,
                 data.exchanges,
                 conn,
                 chunk_size,
@@ -620,7 +655,7 @@ class AssetDBWriter(object):
             else:
                 write_version_info(txn, version_info, ASSET_DB_VERSION)
 
-    def _normalize_equities(self, equities):
+    def _normalize_equities(self, equities, exchanges):
         # HACK: If 'company_name' is provided, map it to asset_name
         if ('company_name' in equities.columns and
                 'asset_name' not in equities.columns):
@@ -655,7 +690,7 @@ class AssetDBWriter(object):
                     'auto_close_date'):
             equities_output[col] = _dt_to_epoch_ns(equities_output[col])
 
-        return _split_symbol_mappings(equities_output)
+        return _split_symbol_mappings(equities_output, exchanges)
 
     def _normalize_futures(self, futures):
         futures_output = _generate_output_dataframe(
@@ -708,7 +743,6 @@ class AssetDBWriter(object):
             if id_col in df.columns:
                 df.set_index(id_col, inplace=True)
 
-        equities_output, equities_mappings = self._normalize_equities(equities)
         futures_output = self._normalize_futures(futures)
 
         equity_supplementary_mappings_output = (
@@ -720,6 +754,11 @@ class AssetDBWriter(object):
         exchanges_output = _generate_output_dataframe(
             data_subset=exchanges,
             defaults=_exchanges_defaults,
+        )
+
+        equities_output, equities_mappings = self._normalize_equities(
+            equities,
+            exchanges_output,
         )
 
         root_symbols_output = _generate_output_dataframe(

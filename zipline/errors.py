@@ -249,6 +249,13 @@ class SetBenchmarkOutsideInitialize(ZiplineError):
     msg = "'set_benchmark' can only be called within initialize function."
 
 
+class ZeroCapitalError(ZiplineError):
+    """
+    Raised if initial capital is set at or below zero
+    """
+    msg = "initial capital base must be greater than zero"
+
+
 class AccountControlViolation(ZiplineError):
     """
     Raised if the account violates a constraint set by a AccountControl.
@@ -353,7 +360,8 @@ class MultipleValuesFoundForField(ZiplineError):
     """
     msg = """
 Multiple occurrences of the value '{value}' found for field '{field}'.
-Use the as_of_date' argument to specify when the lookup should be valid.
+Use the 'as_of_date' or 'country_code' argument to specify when or where the
+lookup should be valid.
 
 Possible options: {options}
     """.strip()
@@ -520,6 +528,26 @@ class TermInputsNotSpecified(ZiplineError):
     msg = "{termname} requires inputs, but no inputs list was passed."
 
 
+class NonPipelineInputs(ZiplineError):
+    """
+    Raised when a non-pipeline object is passed as input to a ComputableTerm
+    """
+    def __init__(self, term, inputs):
+        self.term = term
+        self.inputs = inputs
+
+    def __str__(self):
+        return (
+            "Unexpected input types in {}. "
+            "Inputs to Pipeline expressions must be Filters, Factors, "
+            "Classifiers, or BoundColumns.\n"
+            "Got the following type(s) instead: {}".format(
+                type(self.term).__name__,
+                sorted(set(map(type, self.inputs)), key=lambda t: t.__name__),
+            )
+        )
+
+
 class TermOutputsEmpty(ZiplineError):
     """
     Raised if a user attempts to construct a term with an empty outputs list.
@@ -647,11 +675,29 @@ class NoSuchPipeline(ZiplineError, KeyError):
     )
 
 
+class DuplicatePipelineName(ZiplineError):
+    """
+    Raised when a user tries to attach a pipeline with a name that already
+    exists for another attached pipeline.
+    """
+    msg = (
+        "Attempted to attach pipeline named {name!r}, but the name already "
+        "exists for another pipeline. Please use a different name for this "
+        "pipeline."
+    )
+
+
 class UnsupportedDataType(ZiplineError):
     """
     Raised by CustomFactors with unsupported dtypes.
     """
-    msg = "{typename} instances with dtype {dtype} are not supported."
+    def __init__(self, hint='', **kwargs):
+        if hint:
+            hint = ' ' + hint
+        kwargs['hint'] = hint
+        super(UnsupportedDataType, self).__init__(**kwargs)
+
+    msg = "{typename} instances with dtype {dtype} are not supported.{hint}"
 
 
 class NoFurtherDataError(ZiplineError):

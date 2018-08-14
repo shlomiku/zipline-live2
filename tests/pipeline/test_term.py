@@ -8,13 +8,14 @@ from unittest import TestCase
 from toolz import assoc
 import pandas as pd
 
-from zipline.assets import Asset
+from zipline.assets import Asset, ExchangeInfo
 from zipline.errors import (
     DTypeNotSpecified,
     InvalidOutputName,
     NonWindowSafeInput,
     NotDType,
     TermInputsNotSpecified,
+    NonPipelineInputs,
     TermOutputsEmpty,
     UnsupportedDType,
     WindowLengthNotSpecified,
@@ -147,8 +148,8 @@ def to_dict(l):
     """
     Convert a list to a dict with keys drawn from '0', '1', '2', ...
 
-    Example
-    -------
+    Examples
+    --------
     >>> to_dict([2, 3, 4])  # doctest: +SKIP
     {'0': 2, '1': 3, '2': 4}
     """
@@ -316,7 +317,10 @@ class ObjectIdentityTestCase(TestCase):
         self.assertIs(beta, multiple_outputs.beta)
 
     def test_instance_caching_of_slices(self):
-        my_asset = Asset(1, exchange="TEST")
+        my_asset = Asset(
+            1,
+            exchange_info=ExchangeInfo('TEST FULL', 'TEST', 'US'),
+        )
 
         f = GenericCustomFactor()
         f_slice = f[my_asset]
@@ -544,6 +548,9 @@ class ObjectIdentityTestCase(TestCase):
 
         with self.assertRaises(TermInputsNotSpecified):
             SomeFactorDefaultLength()
+
+        with self.assertRaises(NonPipelineInputs):
+            SomeFactor(window_length=1, inputs=[2])
 
         with self.assertRaises(WindowLengthNotSpecified):
             SomeFactor(inputs=(SomeDataSet.foo,))

@@ -11,6 +11,7 @@ from pandas import (
     DatetimeIndex,
     Int64Index,
 )
+from trading_calendars import get_calendar
 
 from zipline.lib.adjustment import (
     ADD,
@@ -24,7 +25,6 @@ from zipline.pipeline.data import USEquityPricing
 from zipline.pipeline.loaders.frame import (
     DataFrameLoader,
 )
-from zipline.utils.calendars import get_calendar
 
 
 class DataFrameLoaderTestCase(TestCase):
@@ -240,5 +240,4 @@ class DataFrameLoaderTestCase(TestCase):
 
         args, kwargs = m.call_args
         assert_array_equal(kwargs['data'], expected_baseline.values)
-        assert_array_equal(kwargs['mask'], mask)
         self.assertEqual(kwargs['adjustments'], expected_formatted_adjustments)

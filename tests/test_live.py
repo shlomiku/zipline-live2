@@ -49,7 +49,7 @@ from zipline.finance.execution import (StopLimitOrder,
 from zipline.finance.order import ORDER_STATUS
 from zipline.finance.transaction import Transaction
 from zipline.utils.calendars import get_calendar
-from zipline.utils.calendars.trading_calendar import days_at_time
+from trading_calendars.utils.pandas_utils import days_at_time
 from zipline.utils.serialization_utils import load_context, store_context
 from zipline.testing.fixtures import (ZiplineTestCase,
                                       WithTradingEnvironment,

@@ -1,8 +1,8 @@
 """
 NumericalExpression term.
 """
-from itertools import chain
 import re
+from itertools import chain
 from numbers import Number
 
 import numexpr
@@ -11,14 +11,13 @@ from numpy import (
     full,
     inf,
 )
-
 from zipline.pipeline.term import Term, ComputableTerm
-
+from zipline.utils.numpy_utils import bool_dtype
 
 _VARIABLE_NAME_RE = re.compile("^(x_)([0-9]+)$")
 
 # Map from op symbol to equivalent Python magic method name.
-_ops_to_methods = {
+ops_to_methods = {
     '+': '__add__',
     '-': '__sub__',
     '*': '__mul__',
@@ -35,9 +34,12 @@ _ops_to_methods = {
     '>=': '__ge__',
     '>': '__gt__',
 }
+# Map from method name to op symbol.
+methods_to_ops = {v: k for k, v in ops_to_methods.items()}
+
 # Map from op symbol to equivalent Python magic method name after flipping
 # arguments.
-_ops_to_commuted_methods = {
+ops_to_commuted_methods = {
     '+': '__radd__',
     '-': '__rsub__',
     '*': '__rmul__',
@@ -54,7 +56,7 @@ _ops_to_commuted_methods = {
     '>=': '__le__',
     '>': '__lt__',
 }
-_unary_ops_to_methods = {
+unary_ops_to_methods = {
     '-': '__neg__',
     '~': '__invert__',
 }
@@ -152,12 +154,12 @@ def method_name_for_op(op, commute=False):
     '__lt__'
     """
     if commute:
-        return _ops_to_commuted_methods[op]
-    return _ops_to_methods[op]
+        return ops_to_commuted_methods[op]
+    return ops_to_methods[op]
 
 
 def unary_op_name(op):
-    return _unary_ops_to_methods[op]
+    return unary_ops_to_methods[op]
 
 
 def is_comparison(op):
@@ -182,12 +184,19 @@ class NumericalExpression(ComputableTerm):
     window_length = 0
 
     def __new__(cls, expr, binds, dtype):
+        # We always allow filters to be used in windowed computations.
+        # Otherwise, an expression is window_safe if all its constituents are
+        # window_safe.
+        window_safe = (
+            (dtype == bool_dtype) or all(t.window_safe for t in binds)
+        )
+
         return super(NumericalExpression, cls).__new__(
             cls,
             inputs=binds,
             expr=expr,
             dtype=dtype,
-            window_safe=all(t.window_safe for t in binds),
+            window_safe=window_safe,
         )
 
     def _init(self, expr, *args, **kwargs):
@@ -315,8 +324,14 @@ class NumericalExpression(ComputableTerm):
             bindings=self.bindings,
         )
 
-    def short_repr(self):
-        return "Expression: {expr}".format(
-            typename=type(self).__name__,
-            expr=self._expr,
+    def graph_repr(self):
+        """Short repr to use when rendering Pipeline graphs."""
+
+        # Replace any floating point numbers in the expression
+        # with their scientific notation
+        final = re.sub(r"[-+]?\d*\.\d+",
+                       lambda x: format(float(x.group(0)), '.2E'),
+                       self._expr)
+        return "Expression:\l  {}\l".format(
+            final,
         )

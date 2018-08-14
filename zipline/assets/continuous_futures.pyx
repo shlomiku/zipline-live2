@@ -34,9 +34,8 @@ from functools import partial
 from numpy import array, empty, iinfo
 from numpy cimport long_t, int64_t
 from pandas import Timestamp
+from trading_calendars import get_calendar
 import warnings
-
-from zipline.utils.calendars import get_calendar
 
 
 def delivery_predicate(codes, contract):
@@ -51,6 +50,7 @@ march_cycle_delivery_predicate = partial(delivery_predicate,
                                          set(['H', 'M', 'U', 'Z']))
 
 CHAIN_PREDICATES = {
+    'EL': march_cycle_delivery_predicate,
     'ME': march_cycle_delivery_predicate,
     'PL': partial(delivery_predicate, set(['F', 'J', 'N', 'V'])),
     'PA': march_cycle_delivery_predicate,
@@ -102,7 +102,7 @@ cdef class ContinuousFuture:
     cdef readonly object start_date
     cdef readonly object end_date
 
-    cdef readonly object exchange
+    cdef readonly object exchange_info
 
     cdef readonly object adjustment
 
@@ -122,7 +122,7 @@ cdef class ContinuousFuture:
                  object roll_style,
                  object start_date,
                  object end_date,
-                 object exchange,
+                 object exchange_info,
                  object adjustment=None):
 
         self.sid = sid
@@ -130,11 +130,18 @@ cdef class ContinuousFuture:
         self.root_symbol = root_symbol
         self.roll_style = roll_style
         self.offset = offset
-        self.exchange = exchange
+        self.exchange_info = exchange_info
         self.start_date = start_date
         self.end_date = end_date
         self.adjustment = adjustment
 
+    @property
+    def exchange(self):
+        return self.exchange_info.canonical_name
+
+    @property
+    def exchange_full(self):
+        return self.exchange_info.name
 
     def __int__(self):
         return self.sid

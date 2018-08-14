@@ -1,17 +1,67 @@
-from functools import wraps
-
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import sqlalchemy as sa
-from toolz.curried import do, operator as op
+from toolz.curried import do, operator
 
 from zipline.assets.asset_writer import write_version_info
+from zipline.utils.compat import wraps
 from zipline.errors import AssetDBImpossibleDowngrade
 from zipline.utils.preprocess import preprocess
 from zipline.utils.sqlite_utils import coerce_string_to_eng
 
 
-@preprocess(engine=coerce_string_to_eng)
+def alter_columns(op, name, *columns, **kwargs):
+    """Alter columns from a table.
+
+    Parameters
+    ----------
+    name : str
+        The name of the table.
+    *columns
+        The new columns to have.
+    selection_string : str, optional
+        The string to use in the selection. If not provided, it will select all
+        of the new columns from the old table.
+
+    Notes
+    -----
+    The columns are passed explicitly because this should only be used in a
+    downgrade where ``zipline.assets.asset_db_schema`` could change.
+    """
+    selection_string = kwargs.pop('selection_string', None)
+    if kwargs:
+        raise TypeError(
+            'alter_columns received extra arguments: %r' % sorted(kwargs),
+        )
+    if selection_string is None:
+        selection_string = ', '.join(column.name for column in columns)
+
+    tmp_name = '_alter_columns_' + name
+    op.rename_table(name, tmp_name)
+
+    for column in columns:
+        # Clear any indices that already exist on this table, otherwise we will
+        # fail to create the table because the indices will already be present.
+        # When we create the table below, the indices that we want to preserve
+        # will just get recreated.
+        for table in name, tmp_name:
+            try:
+                op.drop_index('ix_%s_%s' % (table, column.name))
+            except sa.exc.OperationalError:
+                pass
+
+    op.create_table(name, *columns)
+    op.execute(
+        'insert into %s select %s from %s' % (
+            name,
+            selection_string,
+            tmp_name,
+        ),
+    )
+    op.drop_table(tmp_name)
+
+
+@preprocess(engine=coerce_string_to_eng(require_exists=True))
 def downgrade(engine, desired_version):
     """Downgrades the assets db at the given engine to the desired version.
 
@@ -97,7 +147,7 @@ def downgrades(src):
     def _(f):
         destination = src - 1
 
-        @do(op.setitem(_downgrade_methods, destination))
+        @do(operator.setitem(_downgrade_methods, destination))
         @wraps(f)
         def wrapper(op, conn, version_info_table):
             conn.execute(version_info_table.delete())  # clear the version
@@ -314,3 +364,165 @@ def _downgrade_v5(op):
 @downgrades(6)
 def _downgrade_v6(op):
     op.drop_table('equity_supplementary_mappings')
+
+
+@downgrades(7)
+def _downgrade_v7(op):
+    tmp_name = '_new_equities'
+    op.create_table(
+        tmp_name,
+        sa.Column(
+            'sid',
+            sa.Integer,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('asset_name', sa.Text),
+        sa.Column('start_date', sa.Integer, default=0, nullable=False),
+        sa.Column('end_date', sa.Integer, nullable=False),
+        sa.Column('first_traded', sa.Integer),
+        sa.Column('auto_close_date', sa.Integer),
+
+        # remove foreign key to exchange
+        sa.Column('exchange', sa.Text),
+
+        # add back exchange full column
+        sa.Column('exchange_full', sa.Text),
+    )
+    op.execute(
+        """
+        insert into
+            _new_equities
+        select
+            eq.sid,
+            eq.asset_name,
+            eq.start_date,
+            eq.end_date,
+            eq.first_traded,
+            eq.auto_close_date,
+            ex.canonical_name,
+            ex.exchange
+        from
+            equities eq
+        inner join
+            exchanges ex
+        on
+            eq.exchange == ex.exchange
+        where
+            ex.country_code in ('US', '??')
+        """,
+    )
+    op.drop_table('equities')
+    op.rename_table(tmp_name, 'equities')
+
+    # rebuild all tables without a foreign key to ``exchanges``
+    alter_columns(
+        op,
+        'futures_root_symbols',
+        sa.Column(
+            'root_symbol',
+            sa.Text,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('root_symbol_id', sa.Integer),
+        sa.Column('sector', sa.Text),
+        sa.Column('description', sa.Text),
+        sa.Column('exchange', sa.Text),
+    )
+    alter_columns(
+        op,
+        'futures_contracts',
+        sa.Column(
+            'sid',
+            sa.Integer,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('symbol', sa.Text, unique=True, index=True),
+        sa.Column('root_symbol', sa.Text, index=True),
+        sa.Column('asset_name', sa.Text),
+        sa.Column('start_date', sa.Integer, default=0, nullable=False),
+        sa.Column('end_date', sa.Integer, nullable=False),
+        sa.Column('first_traded', sa.Integer),
+        sa.Column('exchange', sa.Text),
+        sa.Column('notice_date', sa.Integer, nullable=False),
+        sa.Column('expiration_date', sa.Integer, nullable=False),
+        sa.Column('auto_close_date', sa.Integer, nullable=False),
+        sa.Column('multiplier', sa.Float),
+        sa.Column('tick_size', sa.Float),
+    )
+
+    # drop the ``country_code`` and ``canonical_name`` columns
+    alter_columns(
+        op,
+        'exchanges',
+        sa.Column(
+            'exchange',
+            sa.Text,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('timezone', sa.Text),
+        # Set the timezone to NULL because we don't know what it was before.
+        # Nothing in zipline reads the timezone so it doesn't matter.
+        selection_string="exchange, NULL",
+    )
+    op.rename_table('exchanges', 'futures_exchanges')
+
+    # add back the foreign keys that previously existed
+    alter_columns(
+        op,
+        'futures_root_symbols',
+        sa.Column(
+            'root_symbol',
+            sa.Text,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('root_symbol_id', sa.Integer),
+        sa.Column('sector', sa.Text),
+        sa.Column('description', sa.Text),
+        sa.Column(
+            'exchange',
+            sa.Text,
+            sa.ForeignKey('futures_exchanges.exchange'),
+        ),
+    )
+    alter_columns(
+        op,
+        'futures_contracts',
+        sa.Column(
+            'sid',
+            sa.Integer,
+            unique=True,
+            nullable=False,
+            primary_key=True,
+        ),
+        sa.Column('symbol', sa.Text, unique=True, index=True),
+        sa.Column(
+            'root_symbol',
+            sa.Text,
+            sa.ForeignKey('futures_root_symbols.root_symbol'),
+            index=True
+        ),
+        sa.Column('asset_name', sa.Text),
+        sa.Column('start_date', sa.Integer, default=0, nullable=False),
+        sa.Column('end_date', sa.Integer, nullable=False),
+        sa.Column('first_traded', sa.Integer),
+        sa.Column(
+            'exchange',
+            sa.Text,
+            sa.ForeignKey('futures_exchanges.exchange'),
+        ),
+        sa.Column('notice_date', sa.Integer, nullable=False),
+        sa.Column('expiration_date', sa.Integer, nullable=False),
+        sa.Column('auto_close_date', sa.Integer, nullable=False),
+        sa.Column('multiplier', sa.Float),
+        sa.Column('tick_size', sa.Float),
+    )

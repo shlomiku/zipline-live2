@@ -29,6 +29,7 @@ from pandas import (
     Timestamp,
 )
 from pandas.util.testing import assert_index_equal
+from trading_calendars import get_calendar
 
 from zipline.data.us_equity_pricing import (
     BcolzDailyBarReader,
@@ -52,7 +53,6 @@ from zipline.testing.fixtures import (
     WithTradingCalendars,
     ZiplineTestCase,
 )
-from zipline.utils.calendars import get_calendar
 
 TEST_CALENDAR_START = Timestamp('2015-06-01', tz='UTC')
 TEST_CALENDAR_STOP = Timestamp('2015-06-30', tz='UTC')
@@ -82,6 +82,7 @@ EQUITY_INFO = DataFrame(
     columns=['start_date', 'end_date'],
 ).astype(datetime64)
 EQUITY_INFO['symbol'] = [chr(ord('A') + n) for n in range(len(EQUITY_INFO))]
+EQUITY_INFO['exchange'] = 'TEST'
 
 TEST_QUERY_ASSETS = EQUITY_INFO.index
 
