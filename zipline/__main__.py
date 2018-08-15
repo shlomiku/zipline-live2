@@ -317,7 +317,9 @@ def run(ctx,
             ctx.fail("unsupported broker: can't import class %s from %s" %
                      (cl_name, mod_name))
         brokerobj = bclass(broker_uri)
-
+        if end is None:
+            end = pd.Timestamp.utcnow()
+            
     if (algotext is not None) == (algofile is not None):
         ctx.fail(
             "must specify exactly one of '-f' / '--algofile' or"
