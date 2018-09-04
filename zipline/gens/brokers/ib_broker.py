@@ -916,9 +916,7 @@ class IBBroker(Broker):
                     amount=amount,
                     dt=pd.to_datetime(exec_detail.m_time, utc=True),
                     price=exec_detail.m_price,
-                    order_id=order.id,
-                    commission=commission
-                )
+                    order_id=order.id)
                 self._transactions[exec_id] = tx
 
     def cancel_order(self, zp_order_id):
