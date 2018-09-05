@@ -898,15 +898,6 @@ class IBBroker(Broker):
                 if exec_id in self._transactions:
                     continue
 
-                try:
-                    commission = self._tws.commissions[ib_order_id][exec_id]\
-                        .m_commission
-                except KeyError:
-                    log.warning(
-                        "Commission not found for execution: {}".format(
-                            exec_id))
-                    commission = 0
-
                 exec_detail = execution['exec_detail']
                 is_buy = order.amount > 0
                 amount = (exec_detail.m_shares if is_buy

@@ -23,7 +23,8 @@ warning_logger = Logger('AlgoWarning')
 
 
 class BlotterLive(Blotter):
-    def cancel_all_orders_for_asset(self, asset, warn=False, relay_status=True):
+    def cancel_all_orders_for_asset(self, asset, warn=False,
+                                    relay_status=True):
         for order in self.open_orders[asset]:
             self.cancel(order.id, relay_status)
             if warn:
