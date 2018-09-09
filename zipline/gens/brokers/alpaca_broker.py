@@ -202,9 +202,7 @@ class ALPACABroker(Broker):
                 amount=int(order.filled_qty),
                 dt=order.filled_at,
                 price=float(order.filled_avg_price),
-                order_id=order.client_order_id,
-                commission=0.0,
-            )
+                order_id=order.client_order_id)
             results[order.client_order_id] = tx
         return results
 

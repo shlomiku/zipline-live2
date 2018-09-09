@@ -2,7 +2,7 @@ import errno
 import os
 
 from importlib import import_module
-from functools import wraps
+# from functools import wraps
 
 import click
 import logbook
@@ -319,7 +319,7 @@ def run(ctx,
         brokerobj = bclass(broker_uri)
         if end is None:
             end = pd.Timestamp.utcnow()
-            
+
     if (algotext is not None) == (algofile is not None):
         ctx.fail(
             "must specify exactly one of '-f' / '--algofile' or"
