@@ -170,6 +170,9 @@ class TradingAlgorithm(object):
         tracebacks. default: '<string>'.
     data_frequency : {'daily', 'minute'}, optional
         The duration of the bars.
+    performance_callback : callback, optional
+        A callback to send performance results everyday and not only at the end of the backtest.
+        this allows to run live, and monitor the performance of the algorithm daily
     equities_metadata : dict or DataFrame or file-like object, optional
         If dict is provided, it must have the following structure:
         * keys are the identifiers
@@ -231,6 +234,7 @@ class TradingAlgorithm(object):
                  capital_changes=None,
                  get_pipeline_loader=None,
                  create_event_context=None,
+                 performance_callback=None,
                  **initialize_kwargs):
         # List of trading controls to be used to validate orders.
         self.trading_controls = []
@@ -372,6 +376,7 @@ class TradingAlgorithm(object):
             self._handle_data = handle_data
             self._before_trading_start = before_trading_start
             self._analyze = analyze
+            self._performance_callback = performance_callback
 
         self.event_manager.add_event(
             zipline.utils.events.Event(
@@ -637,6 +642,9 @@ class TradingAlgorithm(object):
             perfs = []
             for perf in self.get_generator():
                 perfs.append(perf)
+                if self._performance_callback:
+                    # this is called daily
+                    self._performance_callback(perf)
 
             # convert perf dict to pandas dataframe
             daily_stats = self._create_daily_stats(perfs)
