@@ -128,7 +128,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             self,
             sim_params,
             self.data_portal,
-            self._create_clock(),
+            self.trading_client.clock,
             self._create_benchmark_source(),
             self.restrictions,
             universe_func=self._calculate_universe
