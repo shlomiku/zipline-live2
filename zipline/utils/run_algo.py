@@ -83,7 +83,8 @@ def _run(handle_data,
          broker,
          state_filename,
          realtime_bar_target,
-         performance_callback):
+         performance_callback,
+         stop_execution_callback):
     """
     Run a backtest for the given algorithm.
     This is shared between the cli and :func:`zipline.run_algo`.
@@ -92,7 +93,10 @@ def _run(handle_data,
     broker - wrapper to connect to a real broker
     state_filename - saving the context of the algo to be able to restart
     performance_callback - a callback to send performance results everyday and not only at the end of the backtest.
-                        this allows to run live, and monitor the performance of the algorithm
+        this allows to run live, and monitor the performance of the algorithm
+    stop_execution_callback - A callback to check if execution should be stopped. it is used to be able to stop live
+        trading (also simulation could be stopped using this) execution. if the callback returns True, then algo
+        execution will be aborted.
     """
     if benchmark_returns is None:
         benchmark_returns, _ = load_market_data(environ=environ)
@@ -228,6 +232,7 @@ def _run(handle_data,
         blotter=blotter,
         benchmark_returns=benchmark_returns,
         performance_callback=performance_callback,
+        stop_execution_callback=stop_execution_callback,
         **{
             'initialize': initialize,
             'handle_data': handle_data,
@@ -324,6 +329,7 @@ def run_algorithm(start,
                   tws_uri=None,
                   broker=None,
                   performance_callback=None,
+                  stop_execution_callback=None,
                   state_filename=None,
                   realtime_bar_target=None
                   ):
@@ -388,8 +394,11 @@ def run_algorithm(start,
     live_trading : boolean, indicating are we running forward (live) and not backwards (backtesting)
     tws_uri : ip:listening_port:client id e.g "localhost:4002:1232"
     broker : instance of zipline.gens.brokers.broker.Broker
-    performance_callback : performance_callback - a callback to send performance results everyday and not only at the
-                           end of the backtest. this allows to run live, and monitor the performance of the algorithm
+    performance_callback : a callback to send performance results everyday and not only at the end of the backtest.
+                           this allows to run live, and monitor the performance of the algorithm
+    stop_execution_callback : A callback to check if execution should be stopped. it is used to be able to stop live
+                              trading (also simulation could be stopped using this) execution. if the callback returns
+                              True, then algo execution will be aborted.
     state_filename : path to pickle file storing the algorithm "context" (similar to self)
 
     Returns
@@ -429,4 +438,5 @@ def run_algorithm(start,
         state_filename=state_filename,
         realtime_bar_target=realtime_bar_target,
         performance_callback=performance_callback,
+        stop_execution_callback=stop_execution_callback
     )

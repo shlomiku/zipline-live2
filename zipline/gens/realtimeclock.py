@@ -28,7 +28,8 @@ log = Logger('Realtime Clock')
 
 
 class RealtimeClock(object):
-    """Realtime clock for live trading.
+    """
+    Realtime clock for live trading.
 
     This class is a drop-in replacement for
     :class:`zipline.gens.sim_engine.MinuteSimulationClock`.
@@ -48,7 +49,8 @@ class RealtimeClock(object):
                  before_trading_start_minutes,
                  minute_emission,
                  time_skew=pd.Timedelta("0s"),
-                 is_broker_alive=None):
+                 is_broker_alive=None,
+                 stop_execution_callback=None):
         self.sessions = sessions
         self.execution_opens = execution_opens
         self.execution_closes = execution_closes
@@ -58,11 +60,15 @@ class RealtimeClock(object):
         self.is_broker_alive = is_broker_alive or (lambda: True)
         self._last_emit = None
         self._before_trading_start_bar_yielded = False
+        self._stop_execution_callback = stop_execution_callback
 
     def __iter__(self):
         yield self.sessions[0], SESSION_START
 
         while self.is_broker_alive():
+            if self._stop_execution_callback:
+                if self._stop_execution_callback():
+                    break
             current_time = pd.to_datetime('now', utc=True)
             server_time = (current_time + self.time_skew).floor('1 min')
 

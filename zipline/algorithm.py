@@ -170,9 +170,12 @@ class TradingAlgorithm(object):
         tracebacks. default: '<string>'.
     data_frequency : {'daily', 'minute'}, optional
         The duration of the bars.
-    performance_callback : callback, optional
+    performance_callback : callback[(perf) -> None], optional
         A callback to send performance results everyday and not only at the end of the backtest.
         this allows to run live, and monitor the performance of the algorithm daily
+    stop_execution_callback : callback[() -> bool], optional
+        A callback to check if execution should be stopped. it is used to be able to stop live trading (also simulation
+        could be stopped using this) execution. if the callback returns True, then algo execution will be aborted.
     equities_metadata : dict or DataFrame or file-like object, optional
         If dict is provided, it must have the following structure:
         * keys are the identifiers
@@ -235,6 +238,7 @@ class TradingAlgorithm(object):
                  get_pipeline_loader=None,
                  create_event_context=None,
                  performance_callback=None,
+                 stop_execution_callback=None,
                  **initialize_kwargs):
         # List of trading controls to be used to validate orders.
         self.trading_controls = []
@@ -377,6 +381,7 @@ class TradingAlgorithm(object):
             self._before_trading_start = before_trading_start
             self._analyze = analyze
             self._performance_callback = performance_callback
+            self._stop_execution_callback = stop_execution_callback
 
         self.event_manager.add_event(
             zipline.utils.events.Event(
