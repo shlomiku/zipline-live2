@@ -16,7 +16,8 @@ from collections import namedtuple, defaultdict, OrderedDict
 from time import sleep
 from math import fabs
 
-from six import iteritems
+from six import iteritems, itervalues
+import polling
 import pandas as pd
 import numpy as np
 
@@ -51,6 +52,7 @@ Position = namedtuple('Position', ['contract', 'position', 'market_price',
                                    'unrealized_pnl', 'realized_pnl',
                                    'account_name'])
 
+_max_wait_subscribe = 500 # how many cycles to wait
 _connection_timeout = 15  # Seconds
 _poll_frequency = 0.1
 
@@ -522,23 +524,35 @@ class IBBroker(Broker):
 
     def subscribe_to_market_data(self, asset):
         if asset not in self.subscribed_assets:
+            log.debug("Subscribing to market data for {}".format(
+                asset))
+
             # remove str() cast to have a fun debugging journey
             self._tws.subscribe_to_market_data(str(asset.symbol))
             self._subscribed_assets.append(asset)
-
-            while asset.symbol not in self._tws.bars:
-                sleep(_poll_frequency)
+            try:
+                polling.poll(
+                lambda: asset.symbol in self._tws.bars,
+                timeout=_max_wait_subscribe,
+                step=_poll_frequency)
+            except polling.TimeoutException, te:
+                log.debug('!!!WARNING: I did not manage to subscribe to %s ' % str(asset.symbol))
+    	    else:
+                log.debug("Subscription completed")
 
     @property
     def positions(self):
         z_positions = zp.Positions()
+        cur_pos_in_tracker = self.metrics_tracker.position_tracker.get_positions()
         for symbol in self._tws.positions:
             ib_position = self._tws.positions[symbol]
             try:
-                z_position = zp.Position(symbol_lookup(symbol))
+                asset = self._safe_symbol_lookup(symbol)
+                z_position = zp.Position(asset)
             except SymbolNotFound:
                 # The symbol might not have been ingested to the db therefore
                 # it needs to be skipped.
+                log.debug('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol )
                 continue
             z_position.amount = int(ib_position.position)
             z_position.cost_basis = float(ib_position.average_cost)
@@ -553,66 +567,88 @@ class IBBroker(Broker):
                 z_position.last_sale_date = None
             z_positions[symbol_lookup(symbol)] = z_position
 
-        return z_positions
+
+            self.metrics_tracker.position_tracker.update_position(asset,
+                        amount = z_position.amount,
+                        last_sale_price = z_position.last_sale_price,
+                        last_sale_date = z_position.last_sale_date,
+                        cost_basis = z_position.cost_basis)
+
+        for asset in cur_pos_in_tracker:
+            if asset.symbol not in self._tws.positions:
+                #deleting object from storage as its not in the portfolio
+                self.metrics_tracker.position_tracker.update_position(asset,
+                        amount = 0)
+
+        return self.metrics_tracker.positions
+
 
     @property
     def portfolio(self):
+        # ib_account = self.get_account_from_broker()
+        # print ib_account
+        # z_portfolio = zp.Portfolio()
+        # z_portfolio.capital_used = None  # TODO(tibor)
+        # z_portfolio.starting_cash = None  # TODO(tibor): Fill from state
+        # z_portfolio.portfolio_value = float(ib_account['EquityWithLoanValue'])
+        # z_portfolio.pnl = (float(ib_account['RealizedPnL']) +
+        #                    float(ib_account['UnrealizedPnL']))
+        # z_portfolio.returns = None  # TODO(tibor): pnl / total_at_start
+        # z_portfolio.cash = float(ib_account['TotalCashValue'])
+        # z_portfolio.start_date = None  # TODO(tibor)
+        positions = self.positions
+        # z_portfolio.positions_value = float(ib_account['StockMarketValue'])
+        # z_portfolio.positions_exposure \
+        #     = (z_portfolio.positions_value /
+        #        (z_portfolio.positions_value +
+        #         float(ib_account['TotalCashValue'])))
+
+        return self.metrics_tracker.portfolio
+
+    def get_account_from_broker(self):
         ib_account = self._tws.accounts[self.account_id][self.currency]
+        return ib_account
 
-        z_portfolio = zp.Portfolio()
-        z_portfolio.capital_used = None  # TODO(tibor)
-        z_portfolio.starting_cash = None  # TODO(tibor): Fill from state
-        z_portfolio.portfolio_value = float(ib_account['EquityWithLoanValue'])
-        z_portfolio.pnl = (float(ib_account['RealizedPnL']) +
-                           float(ib_account['UnrealizedPnL']))
-        z_portfolio.returns = None  # TODO(tibor): pnl / total_at_start
-        z_portfolio.cash = float(ib_account['TotalCashValue'])
-        z_portfolio.start_date = None  # TODO(tibor)
-        z_portfolio.positions = self.positions
-        z_portfolio.positions_value = float(ib_account['StockMarketValue'])
-        z_portfolio.positions_exposure \
-            = (z_portfolio.positions_value /
-               (z_portfolio.positions_value +
-                float(ib_account['TotalCashValue'])))
+    def set_metrics_tracker(self, metrics_tracker):
+        self.metrics_tracker = metrics_tracker
 
-        return z_portfolio
 
     @property
     def account(self):
         ib_account = self._tws.accounts[self.account_id][self.currency]
 
-        z_account = zp.Account()
-
-        z_account.settled_cash = float(ib_account['TotalCashValue-S'])
-        z_account.accrued_interest = None  # TODO(tibor)
-        z_account.buying_power = float(ib_account['BuyingPower'])
-        z_account.equity_with_loan = float(ib_account['EquityWithLoanValue'])
-        z_account.total_positions_value = float(ib_account['StockMarketValue'])
-        z_account.total_positions_exposure = float(
-            (z_account.total_positions_value /
-             (z_account.total_positions_value +
-              float(ib_account['TotalCashValue']))))
-        z_account.regt_equity = float(ib_account['RegTEquity'])
-        z_account.regt_margin = float(ib_account['RegTMargin'])
-        z_account.initial_margin_requirement = float(
-            ib_account['FullInitMarginReq'])
-        z_account.maintenance_margin_requirement = float(
-            ib_account['FullMaintMarginReq'])
-        z_account.available_funds = float(ib_account['AvailableFunds'])
-        z_account.excess_liquidity = float(ib_account['ExcessLiquidity'])
-        z_account.cushion = float(
-            self._tws.accounts[self.account_id]['']['Cushion'])
-        z_account.day_trades_remaining = float(
-            self._tws.accounts[self.account_id]['']['DayTradesRemaining'])
-        z_account.leverage = float(
-            self._tws.accounts[self.account_id]['']['Leverage-S'])
-        z_account.net_leverage = (
+        self.metrics_tracker.override_account_fields(
+            settled_cash = float(ib_account['CashBalance']),
+            accrued_interest=float(ib_account['AccruedCash']),
+            buying_power=float(ib_account['BuyingPower']),
+            equity_with_loan=float(ib_account['EquityWithLoanValue']),
+            total_positions_value=float(ib_account['StockMarketValue']),
+            total_positions_exposure=float(
+                (float(ib_account['StockMarketValue']) /
+                (float(ib_account['StockMarketValue']) +
+                float(ib_account['TotalCashValue'])))),
+            regt_equity=float(ib_account['RegTEquity']),
+            regt_margin=float(ib_account['RegTMargin']),
+            initial_margin_requirement=float(
+                ib_account['FullInitMarginReq']),
+            maintenance_margin_requirement=float(
+                ib_account['FullMaintMarginReq']),
+            available_funds=float(ib_account['AvailableFunds']),
+            excess_liquidity=float(ib_account['ExcessLiquidity']),
+            cushion=float(
+                self._tws.accounts[self.account_id]['']['Cushion']),
+            day_trades_remaining=float(
+                self._tws.accounts[self.account_id]['']['DayTradesRemaining']),
+            leverage=float(
+                self._tws.accounts[self.account_id]['']['Leverage-S']),
+            net_leverage=(
             float(ib_account['StockMarketValue']) /
             (float(ib_account['TotalCashValue']) +
-             float(ib_account['StockMarketValue'])))
-        z_account.net_liquidation = float(ib_account['NetLiquidation'])
+                float(ib_account['StockMarketValue']))),
+            net_liquidation=float(ib_account['NetLiquidation'])
+            )
 
-        return z_account
+        return self.metrics_tracker.account
 
     @property
     def time_skew(self):
@@ -700,6 +736,7 @@ class IBBroker(Broker):
         elif isinstance(style, StopLimitOrder):
             order.m_orderType = "STP LMT"
 
+        # TODO: Support GTC orders both here and at blotter_live
         order.m_tif = "DAY"
         order.m_orderRef = self._create_order_ref(order)
 
@@ -829,14 +866,14 @@ class IBBroker(Broker):
                 open_order_state = self._tws.open_orders[ib_order_id]['state']
 
                 zp_status = self._ib_to_zp_status(open_order_state.m_status)
-                if zp_status:
-                    zp_order.status = zp_status
-                else:
+                if zp_status is None:
                     log.warning(
                         "Order-{order_id}: "
                         "unknown order status: {order_status}.".format(
                             order_id=ib_order_id,
                             order_status=open_order_state.m_status))
+                else:
+                    zp_order.status = zp_status
 
             if ib_order_id in self._tws.order_statuses:
                 order_status = self._tws.order_statuses[ib_order_id]
@@ -898,6 +935,15 @@ class IBBroker(Broker):
                 if exec_id in self._transactions:
                     continue
 
+                try:
+                    commission = self._tws.commissions[ib_order_id][exec_id]\
+                        .m_commission
+                except KeyError:
+                    log.warning(
+                        "Commission not found for execution: {}".format(
+                            exec_id))
+                    commission = 0
+
                 exec_detail = execution['exec_detail']
                 is_buy = order.amount > 0
                 amount = (exec_detail.m_shares if is_buy
@@ -907,7 +953,9 @@ class IBBroker(Broker):
                     amount=amount,
                     dt=pd.to_datetime(exec_detail.m_time, utc=True),
                     price=exec_detail.m_price,
-                    order_id=order.id)
+                    order_id=order.id,
+                    commission=commission
+                )
                 self._transactions[exec_id] = tx
 
     def cancel_order(self, zp_order_id):
