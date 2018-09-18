@@ -2223,7 +2223,6 @@ class TradingAlgorithm(object):
     # Pipeline API
     ##############
     @api_method
-    @require_not_initialized(AttachPipelineAfterInitialize())
     @expect_types(
         pipeline=Pipeline,
         name=string_types,
@@ -2268,7 +2267,7 @@ class TradingAlgorithm(object):
             raise DuplicatePipelineName(name=name)
 
         self._pipelines[name] = AttachedPipeline(pipeline, iter(chunks), eager)
-
+        log.info('Pipeline {} attached'.format(name))
         # Return the pipeline to allow expressions like
         # p = attach_pipeline(Pipeline(), 'name')
         return pipeline
