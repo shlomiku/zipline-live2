@@ -15,7 +15,7 @@ import os.path
 import logbook
 import pandas as pd
 
-from zipline.finance.blotter_live import BlotterLive
+from zipline.finance.blotter.blotter_live import BlotterLive
 from zipline.algorithm import TradingAlgorithm
 from zipline.gens.realtimeclock import RealtimeClock
 from zipline.gens.tradesimulation import AlgorithmSimulator

@@ -37,7 +37,7 @@ from zipline.gens.realtimeclock import (RealtimeClock,
                                         SESSION_START,
                                         BEFORE_TRADING_START_BAR)
 from zipline.finance.order import Order as ZPOrder
-from zipline.finance.blotter_live import BlotterLive
+from zipline.finance.blotter.blotter_live import BlotterLive
 from zipline.gens.sim_engine import MinuteSimulationClock
 from zipline.gens.brokers.broker import Broker
 from zipline.gens.brokers.ib_broker import IBBroker, TWSConnection
