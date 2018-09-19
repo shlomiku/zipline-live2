@@ -97,6 +97,12 @@ def _method_params_to_dict(args):
 
 class TWSConnection(EClientSocket, EWrapper):
     def __init__(self, tws_uri):
+        """
+        :param tws_uri: host:listening_port:client_id
+                        - host ip of running tws or ibgw
+                        - port default for tws 7496 for ibgw 4002
+                        - your client id, could be any number as long as it's not already used
+        """
         EWrapper.__init__(self)
         EClientSocket.__init__(self, anyWrapper=self)
 
