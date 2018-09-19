@@ -23,6 +23,29 @@ warning_logger = Logger('AlgoWarning')
 
 
 class BlotterLive(Blotter):
+    def __init__(self, data_frequency, broker):
+        """
+        :param data_frequency: daily or minute
+        :param broker: instance of Broker (e.g IBBroker)
+        """
+        super(BlotterLive, self).__init__()
+        self.broker = broker
+        self._processed_closed_orders = []
+        self._processed_transactions = []
+        self.data_frequency = data_frequency
+        self.new_orders = []
+
+    def __repr__(self):
+        return """
+    {class_name}(
+        open_orders={open_orders},
+        orders={orders},
+        new_orders={new_orders},
+    """.strip().format(class_name=self.__class__.__name__,
+                       open_orders=self.open_orders,
+                       orders=self.orders,
+                       new_orders=self.new_orders)
+
     def cancel_all_orders_for_asset(self, asset, warn=False,
                                     relay_status=True):
         for order in self.open_orders[asset]:
@@ -68,24 +91,6 @@ class BlotterLive(Blotter):
                         )
                     )
 
-    def __init__(self, data_frequency, broker):
-        super(BlotterLive, self).__init__()
-        self.broker = broker
-        self._processed_closed_orders = []
-        self._processed_transactions = []
-        self.data_frequency = data_frequency
-        self.new_orders = []
-
-    def __repr__(self):
-        return """
-    {class_name}(
-        open_orders={open_orders},
-        orders={orders},
-        new_orders={new_orders},
-    """.strip().format(class_name=self.__class__.__name__,
-                       open_orders=self.open_orders,
-                       orders=self.orders,
-                       new_orders=self.new_orders)
 
     @property
     def orders(self):
