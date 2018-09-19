@@ -69,6 +69,7 @@ class BlotterLive(Blotter):
                     )
 
     def __init__(self, data_frequency, broker):
+        super(BlotterLive, self).__init__()
         self.broker = broker
         self._processed_closed_orders = []
         self._processed_transactions = []
