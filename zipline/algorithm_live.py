@@ -17,18 +17,14 @@ from locale import format
 
 import logbook
 import pandas as pd
-<<<<<<< HEAD
+
 import trading_calendars as cal
 from IPython import embed
 from trading_calendars import get_calendar
 from trading_calendars.utils.pandas_utils import days_at_time
-=======
-
 from zipline.finance.blotter.blotter_live import BlotterLive
->>>>>>> 6b9b8673e6a07d91954c08b6327cb9d83ffbc3de
 from zipline.algorithm import TradingAlgorithm
 from zipline.errors import ScheduleFunctionOutsideTradingStart
-from zipline.finance.blotter import BlotterLive
 from zipline.gens.realtimeclock import RealtimeClock
 from zipline.gens.tradesimulation import AlgorithmSimulator
 from zipline.utils.api_support import ZiplineAPI, \
