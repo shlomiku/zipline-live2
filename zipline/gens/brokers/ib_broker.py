@@ -969,8 +969,10 @@ class IBBroker(Broker):
             symbol = str(asset.symbol)
             self.subscribe_to_market_data(asset)
 
-            trade_prices = self._tws.bars[symbol]['last_trade_price']
-            trade_sizes = self._tws.bars[symbol]['last_trade_size']
+            trade_prices = self._tws.bars[symbol]['last_trade_price'] \
+                if symbol in self._tws.bars else np.nan
+            trade_sizes = self._tws.bars[symbol]['last_trade_size'] \
+                if symbol in self._tws.bars else np.nan
             ohlcv = trade_prices.resample(resample_freq).ohlc()
             ohlcv['volume'] = trade_sizes.resample(resample_freq).sum()
 
