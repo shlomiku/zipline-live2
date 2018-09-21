@@ -106,6 +106,7 @@ class ALPACABroker(Broker):
         z_account.buying_power = float(account.cash)
         z_account.total_position_value = float(
             account.portfolio_value) - float(account.cash)
+        z_account.net_liquidation = account.portfolio_value
         return z_account
 
     @property

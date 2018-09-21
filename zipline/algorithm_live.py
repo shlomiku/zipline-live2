@@ -12,29 +12,43 @@
 # limitations under the License.
 from datetime import time
 import os.path
+from datetime import time, timedelta
+from locale import format
+
 import logbook
 import pandas as pd
 
+import trading_calendars as cal
+from IPython import embed
+from trading_calendars import get_calendar
+from trading_calendars.utils.pandas_utils import days_at_time
 from zipline.finance.blotter.blotter_live import BlotterLive
 from zipline.algorithm import TradingAlgorithm
+from zipline.errors import ScheduleFunctionOutsideTradingStart
 from zipline.gens.realtimeclock import RealtimeClock
 from zipline.gens.tradesimulation import AlgorithmSimulator
-from zipline.errors import ScheduleFunctionOutsideTradingStart
-from zipline.utils.api_support import (
-    ZiplineAPI,
-    api_method,
-    allowed_only_in_before_trading_start)
-
-from trading_calendars.utils.pandas_utils import days_at_time
+from zipline.utils.api_support import ZiplineAPI, \
+    allowed_only_in_before_trading_start, api_method
+from zipline.utils.pandas_utils import normalize_date
 from zipline.utils.serialization_utils import load_context, store_context
+from zipline.finance.metrics import MetricsTracker, load as load_metrics_set
 
 log = logbook.Logger("Live Trading")
-
+# how many minutes before Trading starts needs the function before_trading_starts
+# be launched
+_minutes_before_trading_starts = 345
 
 class LiveAlgorithmExecutor(AlgorithmSimulator):
     def __init__(self, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
 
+    def _cleanup_expired_assets(self, dt, position_assets):
+        # This method is invoked in simulation to clean up assets & orders
+        # which passed auto_close_date. In live trading we allow assets
+        # traded after auto_close_date (which is set to last ingestion + 1d)
+        # for one reason: Not all algorithms use historical data and for those
+        # continuous (daily) ingestion is not needed.
+        pass
 
 class LiveTradingAlgorithm(TradingAlgorithm):
     def __init__(self, *args, **kwargs):
@@ -44,21 +58,28 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         self.algo_filename = kwargs.get('algo_filename', "<algorithm>")
         self.state_filename = kwargs.pop('state_filename', None)
         self.realtime_bar_target = kwargs.pop('realtime_bar_target', None)
+        self._context_persistence_blacklist = ['trading_client']
+        self._context_persistence_whitelist = ['initialized', 'perf_tracker']
         self._context_persistence_excludes = []
 
-        if 'blotter' not in kwargs:
-            blotter_live = BlotterLive(
-                data_frequency=kwargs['sim_params'].data_frequency,
-                broker=self.broker)
-            kwargs['blotter'] = blotter_live
+        #if 'blotter' not in kwargs or True:
+        #Blotter always arrives here with simulation blotter, overwriting this
+        #with BlotterLive
+        blotter_live = BlotterLive(
+            data_frequency=kwargs['sim_params'].data_frequency,
+            broker=self.broker)
+        kwargs['blotter'] = blotter_live
 
         super(self.__class__, self).__init__(*args, **kwargs)
-
+        self.asset_finder.is_live = True
         log.info("initialization done")
 
     def initialize(self, *args, **kwargs):
-        self._context_persistence_excludes = (list(self.__dict__.keys()) +
-                                              ['trading_client'])
+
+        self._context_persistence_excludes = \
+            self._context_persistence_blacklist + \
+            [e for e in self.__dict__.keys()
+             if e not in self._context_persistence_whitelist]
 
         if os.path.isfile(self.state_filename):
             log.info("Loading state from {}".format(self.state_filename))
@@ -103,11 +124,11 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         execution_closes = \
             self.trading_calendar.execution_time_from_close(market_closes)
 
-        # FIXME generalize these values
-        before_trading_start_minutes = days_at_time(
-            self.sim_params.sessions,
-            time(8, 45),
-            "US/Eastern"
+        before_trading_start_minutes = ((pd.to_datetime(execution_opens.values)
+                            .tz_localize('UTC')
+                            .tz_convert('US/Eastern')+
+                            timedelta(minutes=-_minutes_before_trading_starts))
+                            .tz_convert('UTC')
         )
 
         return RealtimeClock(
@@ -124,7 +145,19 @@ class LiveTradingAlgorithm(TradingAlgorithm):
     def _create_generator(self, sim_params):
         # Call the simulation trading algorithm for side-effects:
         # it creates the perf tracker
-        TradingAlgorithm._create_generator(self, sim_params)
+        TradingAlgorithm._create_generator(self, self.sim_params)
+
+        #self.metrics_tracker is available now, but we will create a new object
+        #so we can influence the capital_base. TODO: broker object needs to be
+        #able to give account value without trying to set the account object
+        #Now solved with creating new function in broker: get_account_from_broker
+        self.metrics_tracker = metrics_tracker = self._create_metrics_tracker()
+        benchmark_source = self._create_benchmark_source()
+        metrics_tracker.handle_start_of_simulation(benchmark_source)
+
+        #attach metrics_tracker to broker
+        self.broker.set_metrics_tracker(self.metrics_tracker)
+
         self.trading_client = LiveAlgorithmExecutor(
             self,
             sim_params,
@@ -187,9 +220,10 @@ class LiveTradingAlgorithm(TradingAlgorithm):
 
         asset = super(self.__class__, self).symbol(symbol_str)
         tradeable_asset = asset.to_dict()
-        tradeable_asset['end_date'] = (pd.Timestamp('now', tz='UTC') +
-                                       pd.Timedelta('10000 days'))
-        tradeable_asset['auto_close_date'] = tradeable_asset['end_date']
+        tradeable_asset['end_date'] = pd.Timestamp(ts_input='2027-01-01', tz='UTC')
+
+        tradeable_asset['auto_close_date'] = None
+        
         return asset.from_dict(tradeable_asset)
 
     def run(self, *args, **kwargs):
@@ -218,3 +252,35 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             realtime_history[asset].to_csv(path, mode='a',
                                            index_label='datetime',
                                            header=not os.path.exists(path))
+
+    def _pipeline_output(self, pipeline, chunks, name):
+        # This method is taken from TradingAlgorithm.
+        """
+        Internal implementation of `pipeline_output`.
+
+        For Live Algo's we have to get the previous session as the Pipeline wont work without,
+        it will extrapolate such that it tries to get data for get_datetime which
+        is today
+
+        """
+        today = normalize_date(self.get_datetime())
+        prev_session = normalize_date(self.trading_calendar.previous_open(today))
+
+        log.info('today in _pipeline_output : {}'.format(prev_session))
+
+        try:
+            data = self._pipeline_cache.get(name, prev_session)
+        except KeyError:
+            # Calculate the next block.
+            data, valid_until = self.run_pipeline(
+                pipeline, prev_session, next(chunks),
+            )
+            self._pipeline_cache.set(name, data, valid_until)
+
+        # Now that we have a cached result, try to return the data for today.
+        try:
+            return data.loc[prev_session]
+        except KeyError:
+            # This happens if no assets passed the pipeline screen on a given
+            # day.
+            return pd.DataFrame(index=[], columns=data.columns)

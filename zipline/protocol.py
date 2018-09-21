@@ -189,9 +189,9 @@ class Portfolio(object):
     def capital_used(self):
         return self.cash_flow
 
-    # this is required for the zipline-live project
-    # def __setattr__(self, attr, value):
-    #     raise AttributeError('cannot mutate Portfolio objects')
+    def __setattr__(self, attr, value):
+        self.__dict__[attr] = value
+        #raise AttributeError('cannot mutate Portfolio objects')
 
     def __repr__(self):
         return "Portfolio({0})".format(self.__dict__)
@@ -303,9 +303,8 @@ class Position(object):
     def __getattr__(self, attr):
         return getattr(self._underlying_position, attr)
 
-    # this is required for the zipline-live project
-    # def __setattr__(self, attr, value):
-    #     raise AttributeError('cannot mutate Position objects')
+    def __setattr__(self, attr, value):
+        raise AttributeError('cannot mutate Position objects')
 
     @property
     def sid(self):
