@@ -536,9 +536,9 @@ class IBBroker(Broker):
                 timeout=_max_wait_subscribe,
                 step=_poll_frequency)
             except polling.TimeoutException, te:
-                log.debug('!!!WARNING: I did not manage to subscribe to %s ' % str(asset.symbol))
+                log.warn('!!!WARNING: I did not manage to subscribe to %s ' % str(asset.symbol))
     	    else:
-                log.debug("Subscription completed")
+                log.info("Subscription completed")
 
     @property
     def positions(self):
@@ -552,7 +552,7 @@ class IBBroker(Broker):
             except SymbolNotFound:
                 # The symbol might not have been ingested to the db therefore
                 # it needs to be skipped.
-                log.debug('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol )
+                log.warn('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol )
                 continue
             z_position.amount = int(ib_position.position)
             z_position.cost_basis = float(ib_position.average_cost)
