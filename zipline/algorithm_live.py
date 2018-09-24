@@ -43,11 +43,11 @@ class LiveAlgorithmExecutor(AlgorithmSimulator):
         super(self.__class__, self).__init__(*args, **kwargs)
 
     def _cleanup_expired_assets(self, dt, position_assets):
-        # This method is invoked in simulation to clean up assets & orders
-        # which passed auto_close_date. In live trading we allow assets
-        # traded after auto_close_date (which is set to last ingestion + 1d)
-        # for one reason: Not all algorithms use historical data and for those
-        # continuous (daily) ingestion is not needed.
+        # In simulation this is used to close assets in simulation end date, which
+        # makes a lot of sense in our case, "simulation end" is set to 1 day from
+        # now (we might want to fix that in the future too) BUT, in live mode we don't
+        # have a simulation end date, and we should let the algorithm decide when to
+        # close the assets.
         pass
 
 class LiveTradingAlgorithm(TradingAlgorithm):
