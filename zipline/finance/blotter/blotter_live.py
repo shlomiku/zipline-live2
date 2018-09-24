@@ -93,7 +93,6 @@ class BlotterLive(Blotter):
     @expect_types(asset=Asset)
     def order(self, asset, amount, style, order_id=None):
         assert order_id is None
-        log.info('in order of blotter_live')
         order = self.broker.order(asset, amount, style)
         self.new_orders.append(order)
 
