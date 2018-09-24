@@ -524,7 +524,7 @@ class IBBroker(Broker):
 
     def subscribe_to_market_data(self, asset):
         if asset not in self.subscribed_assets:
-            log.debug("Subscribing to market data for {}".format(
+            log.info("Subscribing to market data for {}".format(
                 asset))
 
             # remove str() cast to have a fun debugging journey
