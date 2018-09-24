@@ -131,8 +131,8 @@ class LiveTradingAlgorithm(TradingAlgorithm):
 
         before_trading_start_minutes = ((pd.to_datetime(execution_opens.values)
                             .tz_localize('UTC')
-                            .tz_convert('US/Eastern')+
-                            timedelta(minutes=-_minutes_before_trading_starts))
+                            .tz_convert('US/Eastern')-
+                            timedelta(minutes=_minutes_before_trading_starts))
                             .tz_convert('UTC')
         )
 
