@@ -17,7 +17,7 @@ from copy import copy
 from six import itervalues, iteritems
 
 from zipline.assets import Equity, Future, Asset
-from .blotter import Blotter
+from zipline.finance.blotter.blotter import Blotter
 from zipline.extensions import register
 from zipline.finance.order import Order
 from zipline.finance.slippage import (
