@@ -581,28 +581,15 @@ class IBBroker(Broker):
                         amount = 0)
 
         return self.metrics_tracker.positions
-
+      
+      
+    def update_portfolio_positions_from_broker(self):
+        positions = self.positions
+        
 
     @property
     def portfolio(self):
-        # ib_account = self.get_account_from_broker()
-        # print ib_account
-        # z_portfolio = zp.Portfolio()
-        # z_portfolio.capital_used = None  # TODO(tibor)
-        # z_portfolio.starting_cash = None  # TODO(tibor): Fill from state
-        # z_portfolio.portfolio_value = float(ib_account['EquityWithLoanValue'])
-        # z_portfolio.pnl = (float(ib_account['RealizedPnL']) +
-        #                    float(ib_account['UnrealizedPnL']))
-        # z_portfolio.returns = None  # TODO(tibor): pnl / total_at_start
-        # z_portfolio.cash = float(ib_account['TotalCashValue'])
-        # z_portfolio.start_date = None  # TODO(tibor)
-        positions = self.positions
-        # z_portfolio.positions_value = float(ib_account['StockMarketValue'])
-        # z_portfolio.positions_exposure \
-        #     = (z_portfolio.positions_value /
-        #        (z_portfolio.positions_value +
-        #         float(ib_account['TotalCashValue'])))
-
+        self.update_portfolio_positions_from_broker()
         return self.metrics_tracker.portfolio
 
     def get_account_from_broker(self):
