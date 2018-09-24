@@ -58,11 +58,17 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         self.algo_filename = kwargs.get('algo_filename', "<algorithm>")
         self.state_filename = kwargs.pop('state_filename', None)
         self.realtime_bar_target = kwargs.pop('realtime_bar_target', None)
+        # Persistence blacklist/whitelists and excludes gives a way to include
+        # exclude (and not persists if inititaed) or excluded from the seria-
+        # lization function that reinstate or save the context variable 
+        # to its last state.
+        # trading client can never be serialized, the initialized function and
+        # perf tracker remember the context variables and the past parformance
+        # and need to be whitelisted
         self._context_persistence_blacklist = ['trading_client']
         self._context_persistence_whitelist = ['initialized', 'perf_tracker']
         self._context_persistence_excludes = []
-
-        #if 'blotter' not in kwargs or True:
+        
         #Blotter always arrives here with simulation blotter, overwriting this
         #with BlotterLive
         blotter_live = BlotterLive(
