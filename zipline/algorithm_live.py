@@ -77,7 +77,6 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         kwargs['blotter'] = blotter_live
 
         super(self.__class__, self).__init__(*args, **kwargs)
-        self.asset_finder.is_live = True
         log.info("initialization done")
 
     def initialize(self, *args, **kwargs):
