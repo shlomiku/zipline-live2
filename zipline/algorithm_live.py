@@ -214,19 +214,20 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         # then CannotOrderDelistedAsset exception will be raised from the
         # higher level order functions.
         #
-        # Hence, we are increasing the asset's end_date by 10,000 days.
-        # The ample buffer is provided for two reasons:
-        # 1) assets are often stored in algo's context through initialize(),
-        #    which is called once and persisted at live trading. 10,000 days
-        #    enables 27+ years of trading, which is more than enough.
-        # 2) Tool - 10,000 Days is brilliant!
+        # Hence, we are increasing the asset's end_date by 10 years.
+        # The ample buffer is provided for one reason: assets are often stored
+        # in algo's context through initialize(), which is called once and
+        # persisted at live trading.
 
         asset = super(self.__class__, self).symbol(symbol_str)
         tradeable_asset = asset.to_dict()
-        tradeable_asset['end_date'] = pd.Timestamp(ts_input='2027-01-01', tz='UTC')
-
-        tradeable_asset['auto_close_date'] = None
-        
+        now = pd.Timestamp(ts_input='now', tz='UTC')
+        extended_datestr = '{}-{}-{}'.format(now.year+10, now.month, min(now.day,28))
+        extended_date = pd.Timestamp(ts_input=extended_datestr, tz='UTC')
+        tradeable_asset['end_date'] = extended_date
+        tradeable_asset['auto_close_date'] = extended_date
+        log.info('Extended lifetime of asset {} to {}'.format(symbol_str,
+            tradeable_asset['end_date']))
         return asset.from_dict(tradeable_asset)
 
     def run(self, *args, **kwargs):
