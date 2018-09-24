@@ -154,9 +154,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         TradingAlgorithm._create_generator(self, self.sim_params)
 
         #self.metrics_tracker is available now, but we will create a new object
-        #so we can influence the capital_base. TODO: broker object needs to be
-        #able to give account value without trying to set the account object
-        #Now solved with creating new function in broker: get_account_from_broker
+        #so we can influence the capital_base. 
         self.metrics_tracker = metrics_tracker = self._create_metrics_tracker()
         benchmark_source = self._create_benchmark_source()
         metrics_tracker.handle_start_of_simulation(benchmark_source)
