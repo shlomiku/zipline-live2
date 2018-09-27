@@ -190,8 +190,7 @@ class Portfolio(object):
         return self.cash_flow
 
     def __setattr__(self, attr, value):
-        self.__dict__[attr] = value
-        #raise AttributeError('cannot mutate Portfolio objects')
+        raise AttributeError('cannot mutate Portfolio objects')
 
     def __repr__(self):
         return "Portfolio({0})".format(self.__dict__)
