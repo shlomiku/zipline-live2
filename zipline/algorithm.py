@@ -439,7 +439,9 @@ class TradingAlgorithm(object):
 
     def before_trading_start(self, data):
         self.compute_eager_pipelines()
-
+        if hasattr(self, "broker"):
+            # we are live, we need to updated our portfolio from the broker before we start
+            self.broker._get_positions_from_broker()
         if self._before_trading_start is None:
             return
 
