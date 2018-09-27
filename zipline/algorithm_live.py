@@ -284,3 +284,12 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             # This happens if no assets passed the pipeline screen on a given
             # day.
             return pd.DataFrame(index=[], columns=data.columns)
+
+    def _sync_last_sale_prices(self, dt=None):
+        """
+        we get the updates from the broker so we don't need to use this method which
+        tries to get it from the ingested data
+        :param dt:
+        :return:
+        """
+        pass
