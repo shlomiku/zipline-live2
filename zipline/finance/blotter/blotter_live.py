@@ -106,8 +106,7 @@ class BlotterLive(Blotter):
         # Cancellation is handled at the broker
         pass
 
-    def cancel_all_orders_for_asset(self, asset, warn=False,
-                                    relay_status=True):
+    def cancel_all_orders_for_asset(self, asset, warn=False, relay_status=True):
         """
         Cancel all open orders for a given asset.
         """
