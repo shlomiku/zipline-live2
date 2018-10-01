@@ -17,7 +17,7 @@ from copy import copy
 from six import itervalues, iteritems
 
 from zipline.assets import Equity, Future, Asset
-from .blotter import Blotter
+from zipline.finance.blotter.blotter import Blotter
 from zipline.extensions import register
 from zipline.finance.order import Order
 from zipline.finance.slippage import (
@@ -93,7 +93,6 @@ class BlotterLive(Blotter):
     @expect_types(asset=Asset)
     def order(self, asset, amount, style, order_id=None):
         assert order_id is None
-        log.info('in order of blotter_live')
         order = self.broker.order(asset, amount, style)
         self.new_orders.append(order)
 
