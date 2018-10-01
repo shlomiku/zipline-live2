@@ -10,18 +10,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from datetime import time
 import os.path
-from datetime import time, timedelta
-from locale import format
-
+from datetime import datetime, timedelta
 import logbook
 import pandas as pd
-
-import trading_calendars as cal
 from IPython import embed
-from trading_calendars import get_calendar
-from trading_calendars.utils.pandas_utils import days_at_time
+from dateutil.relativedelta import relativedelta
+
 from zipline.finance.blotter.blotter_live import BlotterLive
 from zipline.algorithm import TradingAlgorithm
 from zipline.errors import ScheduleFunctionOutsideTradingStart
@@ -38,17 +33,17 @@ log = logbook.Logger("Live Trading")
 # be launched
 _minutes_before_trading_starts = 345
 
+
 class LiveAlgorithmExecutor(AlgorithmSimulator):
     def __init__(self, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
 
     def _cleanup_expired_assets(self, dt, position_assets):
-        # This method is invoked in simulation to clean up assets & orders
-        # which passed auto_close_date. In live trading we allow assets
-        # traded after auto_close_date (which is set to last ingestion + 1d)
-        # for one reason: Not all algorithms use historical data and for those
-        # continuous (daily) ingestion is not needed.
+        # In simulation this is used to close assets in the simulation end date, which makes a lot of sense.
+        # in our case, "simulation end" is set to 1 day from now (we might want to fix that in the future too) BUT,
+        #  we don't really have a simulation end date, and we should let the algorithm decide when to close the assets.
         pass
+
 
 class LiveTradingAlgorithm(TradingAlgorithm):
     def __init__(self, *args, **kwargs):
@@ -58,20 +53,24 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         self.algo_filename = kwargs.get('algo_filename', "<algorithm>")
         self.state_filename = kwargs.pop('state_filename', None)
         self.realtime_bar_target = kwargs.pop('realtime_bar_target', None)
+        # Persistence blacklist/whitelists and excludes gives a way to include
+        # exclude (and not persist if initiated) or excluded from the serialization
+        # function that reinstate or save the context variable to its last state.
+        # trading client can never be serialized, the initialized function and
+        # perf tracker remember the context variables and the past parformance
+        # and need to be whitelisted
         self._context_persistence_blacklist = ['trading_client']
         self._context_persistence_whitelist = ['initialized', 'perf_tracker']
         self._context_persistence_excludes = []
 
-        #if 'blotter' not in kwargs or True:
-        #Blotter always arrives here with simulation blotter, overwriting this
-        #with BlotterLive
+        # blotter is always initialized to SimulationBlotter in run_algo.py.
+        # we override it here to use the LiveBlotter for live algos
         blotter_live = BlotterLive(
             data_frequency=kwargs['sim_params'].data_frequency,
             broker=self.broker)
         kwargs['blotter'] = blotter_live
 
         super(self.__class__, self).__init__(*args, **kwargs)
-        self.asset_finder.is_live = True
         log.info("initialization done")
 
     def initialize(self, *args, **kwargs):
@@ -125,11 +124,9 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             self.trading_calendar.execution_time_from_close(market_closes)
 
         before_trading_start_minutes = ((pd.to_datetime(execution_opens.values)
-                            .tz_localize('UTC')
-                            .tz_convert('US/Eastern')+
-                            timedelta(minutes=-_minutes_before_trading_starts))
-                            .tz_convert('UTC')
-        )
+                                         .tz_localize('UTC').tz_convert('US/Eastern') -
+                                         timedelta(minutes=_minutes_before_trading_starts))
+                                        .tz_convert('UTC'))
 
         return RealtimeClock(
             self.sim_params.sessions,
