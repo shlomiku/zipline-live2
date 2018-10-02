@@ -144,15 +144,24 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         # it creates the perf tracker
         TradingAlgorithm._create_generator(self, self.sim_params)
 
-        #self.metrics_tracker is available now, but we will create a new object
-        #so we can influence the capital_base. TODO: broker object needs to be
-        #able to give account value without trying to set the account object
-        #Now solved with creating new function in broker: get_account_from_broker
-        self.metrics_tracker = metrics_tracker = self._create_metrics_tracker()
-        benchmark_source = self._create_benchmark_source()
-        metrics_tracker.handle_start_of_simulation(benchmark_source)
+        # capital base is the ammount of money the algo can use
+        # it must be set with run_algorithm, and it's optional in cli mode with default value of 10^6
+        # we need to support these scenarios:
+        # 1. cli mode with default param - we need to replace 10^6 with value from broker
+        # 2. run_algorithm or cli with specified value - if I have more than one algo running and I want to allocate
+        #    a specific value for each algo, I cannot override it with value from broker because it will set to max val
+        # so, we will check if it's default value - assuming at this stage capital used for one algo will be less
+        # than 10^6, we will override it with value from broker. if it's specified to something else we will not change
+        # anything.
+        if self.metrics_tracker._capital_base == 10 ^ 6:  # should be changed in the future with a centralized value
+            # the capital base is held in the metrics_tracker then the ledger then the Portfolio, so the best
+            # way to handle this, since it's used in many spots, is creating a new metrics_tracker with the new
+            # value. and ofc intialized relevant parts. this is copied from TradingAlgorithm._create_generator
+            self.metrics_tracker = metrics_tracker = self._create_live_metrics_tracker()
+            benchmark_source = self._create_benchmark_source()
+            metrics_tracker.handle_start_of_simulation(benchmark_source)
 
-        #attach metrics_tracker to broker
+        # attach metrics_tracker to broker
         self.broker.set_metrics_tracker(self.metrics_tracker)
 
         self.trading_client = LiveAlgorithmExecutor(
@@ -166,6 +175,26 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         )
 
         return self.trading_client.transform()
+
+    def _create_live_metrics_tracker(self):
+        """
+        creating the metrics_tracker but setting values from the broker and
+        not from the simulatio params
+        :return:
+        """
+        account = self.broker.get_account_from_broker()
+        capital_base = float(account['NetLiquidation'])
+
+        return MetricsTracker(
+            trading_calendar=self.trading_calendar,
+            first_session=self.sim_params.start_session,
+            last_session=self.sim_params.end_session,
+            capital_base=capital_base,
+            emission_rate=self.sim_params.emission_rate,
+            data_frequency=self.sim_params.data_frequency,
+            asset_finder=self.asset_finder,
+            metrics=self._metrics_set,
+        )
 
     def updated_portfolio(self):
         return self.broker.portfolio
