@@ -96,7 +96,7 @@ class RealtimeClock(object):
                     self._before_trading_start_bar_yielded = True
                     yield server_time, BEFORE_TRADING_START_BAR
                 elif (server_time < self.execution_opens[index].tz_localize('UTC') and index == 0) or \
-                    (self.execution_closes[index - 1].tz_localize('UTC') < server_time <
+                    (self.execution_closes[index - 1].tz_localize('UTC') <= server_time <
                      self.execution_opens[index].tz_localize('UTC')):
                     # sleep anywhere between yesterday's close and today's open
                     sleep(1)
