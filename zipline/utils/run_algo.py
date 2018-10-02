@@ -101,6 +101,16 @@ def _run(handle_data,
     if benchmark_returns is None:
         benchmark_returns, _ = load_market_data(environ=environ)
 
+    emission_rate = 'daily'
+    if broker:
+        emission_rate = 'minute'
+        # if we run zipline as a command line tool, these will probably not be initiated
+        if not start:
+            start = pd.Timestamp.utcnow()
+        if not end:
+            # in cli mode, sessions are 1 day only. and it will be re-ran each day by user
+            end = start + pd.Timedelta('1 day')
+
     if algotext is not None:
         if local_namespace:
             ip = get_ipython()  # noqa
@@ -202,12 +212,6 @@ def _run(handle_data,
             blotter = load(Blotter, blotter)
         except ValueError as e:
             raise _RunAlgoError(str(e))
-
-    emission_rate = 'daily'
-    if broker:
-        emission_rate = 'minute'
-        start = pd.Timestamp.utcnow()
-        end = start + pd.Timedelta('2 day')
 
     TradingAlgorithmClass = (partial(LiveTradingAlgorithm,
                                      broker=broker,
