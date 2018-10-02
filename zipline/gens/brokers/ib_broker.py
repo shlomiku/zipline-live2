@@ -30,6 +30,7 @@ from zipline.finance.execution import (MarketOrder,
                                        StopLimitOrder)
 from zipline.finance.transaction import Transaction
 import zipline.protocol as zp
+from zipline.protocol import MutableView
 from zipline.api import symbol as symbol_lookup
 from zipline.errors import SymbolNotFound
 
@@ -52,10 +53,9 @@ Position = namedtuple('Position', ['contract', 'position', 'market_price',
                                    'unrealized_pnl', 'realized_pnl',
                                    'account_name'])
 
-_max_wait_subscribe = 500 # how many cycles to wait
+_max_wait_subscribe = 10  # how many cycles to wait
 _connection_timeout = 15  # Seconds
 _poll_frequency = 0.1
-
 
 symbol_to_exchange = defaultdict(lambda: 'SMART')
 symbol_to_exchange['VIX'] = 'CBOE'
@@ -102,7 +102,7 @@ class TWSConnection(EClientSocket, EWrapper):
         """
         :param tws_uri: host:listening_port:client_id
                         - host ip of running tws or ibgw
-                        - port default for tws 7496 for ibgw 4002
+                        - port, default for tws 7496 and for ibgw 4002
                         - your client id, could be any number as long as it's not already used
         """
         EWrapper.__init__(self)
@@ -254,10 +254,10 @@ class TWSConnection(EClientSocket, EWrapper):
     def _add_bar(self, symbol, last_trade_price, last_trade_size,
                  last_trade_time, total_volume, vwap, single_trade_flag):
         bar = pd.DataFrame(index=pd.DatetimeIndex([last_trade_time]),
-                           data={'last_trade_price': last_trade_price,
-                                 'last_trade_size': last_trade_size,
-                                 'total_volume': total_volume,
-                                 'vwap': vwap,
+                           data={'last_trade_price':  last_trade_price,
+                                 'last_trade_size':   last_trade_size,
+                                 'total_volume':      total_volume,
+                                 'vwap':              vwap,
                                  'single_trade_flag': single_trade_flag})
 
         if symbol not in self.bars:
@@ -343,10 +343,8 @@ class TWSConnection(EClientSocket, EWrapper):
                 status=self.order_statuses[order_id]['status'],
                 filled=self.order_statuses[order_id]['filled'],
                 remaining=self.order_statuses[order_id]['remaining'],
-                avg_fill_price=self
-                .order_statuses[order_id]['avg_fill_price'],
-                last_fill_price=self
-                .order_statuses[order_id]['last_fill_price']))
+                avg_fill_price=self.order_statuses[order_id]['avg_fill_price'],
+                last_fill_price=self.order_statuses[order_id]['last_fill_price']))
 
     def openOrder(self, order_id, contract, order, state):
         self.open_orders[order_id] = _method_params_to_dict(vars())
@@ -511,6 +509,12 @@ class TWSConnection(EClientSocket, EWrapper):
 
 class IBBroker(Broker):
     def __init__(self, tws_uri, account_id=None):
+        """
+        :param tws_uri: host:listening_port:client_id
+                        - host ip of running tws or ibgw
+                        - port, default for tws 7496 and for ibgw 4002
+                        - your client id, could be any number as long as it's not already used
+        """
         self._tws_uri = tws_uri
         self._orders = {}
         self._transactions = {}
@@ -530,7 +534,7 @@ class IBBroker(Broker):
 
     def subscribe_to_market_data(self, asset):
         if asset not in self.subscribed_assets:
-            log.debug("Subscribing to market data for {}".format(
+            log.info("Subscribing to market data for {}".format(
                 asset))
 
             # remove str() cast to have a fun debugging journey
@@ -538,76 +542,66 @@ class IBBroker(Broker):
             self._subscribed_assets.append(asset)
             try:
                 polling.poll(
-                lambda: asset.symbol in self._tws.bars,
-                timeout=_max_wait_subscribe,
-                step=_poll_frequency)
-            except polling.TimeoutException, te:
-                log.debug('!!!WARNING: I did not manage to subscribe to %s ' % str(asset.symbol))
-    	    else:
+                    lambda: asset.symbol in self._tws.bars,
+                    timeout=_max_wait_subscribe,
+                    step=_poll_frequency)
+            except polling.TimeoutException as te:
+                log.warning('!!!WARNING: I did not manage to subscribe to %s ' % str(asset.symbol))
+            else:
                 log.debug("Subscription completed")
 
     @property
     def positions(self):
-        z_positions = zp.Positions()
-        cur_pos_in_tracker = self.metrics_tracker.position_tracker.get_positions()
+        self._get_positions_from_broker()
+        return self.metrics_tracker.positions
+
+    def _get_positions_from_broker(self):
+        """
+        get the positions from the broker and update zipline objects ( the ledger )
+        should be used once at startup and once every time we want to refresh the positions array
+        """
+        cur_pos_in_tracker = self.metrics_tracker.positions
         for symbol in self._tws.positions:
             ib_position = self._tws.positions[symbol]
             try:
-                asset = self._safe_symbol_lookup(symbol)
-                z_position = zp.Position(asset)
+                z_position = zp.Position(zp.InnerPosition(symbol_lookup(symbol)))
+                editable_position = MutableView(z_position)
             except SymbolNotFound:
                 # The symbol might not have been ingested to the db therefore
                 # it needs to be skipped.
-                log.debug('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol )
+                log.warning('Wanted to subscribe to %s, but this asset is probably not ingested' % symbol)
                 continue
-            z_position.amount = int(ib_position.position)
-            z_position.cost_basis = float(ib_position.average_cost)
+            editable_position._underlying_position.amount = int(ib_position.position)
+            editable_position._underlying_position.cost_basis = float(ib_position.average_cost)
             # Check if symbol exists in bars df
             if symbol in self._tws.bars:
-                z_position.last_sale_price = \
+                editable_position._underlying_position.last_sale_price = \
                     float(self._tws.bars[symbol].last_trade_price.iloc[-1])
-                z_position.last_sale_date = \
+                editable_position._underlying_position.last_sale_date = \
                     self._tws.bars[symbol].index.values[-1]
             else:
-                z_position.last_sale_price = None
-                z_position.last_sale_date = None
-            z_positions[symbol_lookup(symbol)] = z_position
-
-
-            self.metrics_tracker.position_tracker.update_position(asset,
-                        amount = z_position.amount,
-                        last_sale_price = z_position.last_sale_price,
-                        last_sale_date = z_position.last_sale_date,
-                        cost_basis = z_position.cost_basis)
-
+                # editable_position._underlying_position.last_sale_price = None  # this cannot be set to None. only numbers.
+                editable_position._underlying_position.last_sale_date = None
+            self.metrics_tracker.update_position(z_position.asset,
+                                                 amount=z_position.amount,
+                                                 last_sale_price=z_position.last_sale_price,
+                                                 last_sale_date=z_position.last_sale_date,
+                                                 cost_basis=z_position.cost_basis)
         for asset in cur_pos_in_tracker:
             if asset.symbol not in self._tws.positions:
-                #deleting object from storage as its not in the portfolio
-                self.metrics_tracker.position_tracker.update_position(asset,
-                        amount = 0)
-
-        return self.metrics_tracker.positions
+                # deleting object from the metrcs_tracker as its not in the portfolio
+                self.metrics_tracker.update_position(asset,
+                                                     amount=0)
+        # for some reason, the metrics tracker has self.positions AND self.portfolio.positions. let's make sure
+        # these objects are consistent
+        # (self.portfolio.positions is self.metrics_tracker._ledger._portfolio.positions)
+        # (self.metrics_tracker.positions is self.metrics_tracker._ledger.position_tracker.positions)
+        self.metrics_tracker._ledger._portfolio.positions = self.metrics_tracker.positions
 
 
     @property
     def portfolio(self):
-        # ib_account = self.get_account_from_broker()
-        # print ib_account
-        # z_portfolio = zp.Portfolio()
-        # z_portfolio.capital_used = None  # TODO(tibor)
-        # z_portfolio.starting_cash = None  # TODO(tibor): Fill from state
-        # z_portfolio.portfolio_value = float(ib_account['EquityWithLoanValue'])
-        # z_portfolio.pnl = (float(ib_account['RealizedPnL']) +
-        #                    float(ib_account['UnrealizedPnL']))
-        # z_portfolio.returns = None  # TODO(tibor): pnl / total_at_start
-        # z_portfolio.cash = float(ib_account['TotalCashValue'])
-        # z_portfolio.start_date = None  # TODO(tibor)
         positions = self.positions
-        # z_portfolio.positions_value = float(ib_account['StockMarketValue'])
-        # z_portfolio.positions_exposure \
-        #     = (z_portfolio.positions_value /
-        #        (z_portfolio.positions_value +
-        #         float(ib_account['TotalCashValue'])))
 
         return self.metrics_tracker.portfolio
 
@@ -615,24 +609,24 @@ class IBBroker(Broker):
         ib_account = self._tws.accounts[self.account_id][self.currency]
         return ib_account
 
+    
     def set_metrics_tracker(self, metrics_tracker):
         self.metrics_tracker = metrics_tracker
-
 
     @property
     def account(self):
         ib_account = self._tws.accounts[self.account_id][self.currency]
 
         self.metrics_tracker.override_account_fields(
-            settled_cash = float(ib_account['CashBalance']),
+            settled_cash=float(ib_account['CashBalance']),
             accrued_interest=float(ib_account['AccruedCash']),
             buying_power=float(ib_account['BuyingPower']),
             equity_with_loan=float(ib_account['EquityWithLoanValue']),
             total_positions_value=float(ib_account['StockMarketValue']),
             total_positions_exposure=float(
                 (float(ib_account['StockMarketValue']) /
-                (float(ib_account['StockMarketValue']) +
-                float(ib_account['TotalCashValue'])))),
+                 (float(ib_account['StockMarketValue']) +
+                  float(ib_account['TotalCashValue'])))),
             regt_equity=float(ib_account['RegTEquity']),
             regt_margin=float(ib_account['RegTMargin']),
             initial_margin_requirement=float(
@@ -648,11 +642,11 @@ class IBBroker(Broker):
             leverage=float(
                 self._tws.accounts[self.account_id]['']['Leverage-S']),
             net_leverage=(
-            float(ib_account['StockMarketValue']) /
-            (float(ib_account['TotalCashValue']) +
-                float(ib_account['StockMarketValue']))),
+                    float(ib_account['StockMarketValue']) /
+                    (float(ib_account['TotalCashValue']) +
+                     float(ib_account['StockMarketValue']))),
             net_liquidation=float(ib_account['NetLiquidation'])
-            )
+        )
 
         return self.metrics_tracker.account
 
@@ -689,7 +683,7 @@ class IBBroker(Broker):
     @classmethod
     def _parse_order_ref(cls, ib_order_ref):
         if not ib_order_ref or \
-           not ib_order_ref.endswith(cls._zl_order_ref_magic):
+                not ib_order_ref.endswith(cls._zl_order_ref_magic):
             return None
 
         try:
@@ -697,21 +691,21 @@ class IBBroker(Broker):
                 ib_order_ref.split(' ')
 
             if not all(
-                [action.startswith('A:'),
-                 qty.startswith('Q:'),
-                 order_type.startswith('T:'),
-                 limit_price.startswith('L:'),
-                 stop_price.startswith('S:'),
-                 dt.startswith('D:')]):
+                    [action.startswith('A:'),
+                     qty.startswith('Q:'),
+                     order_type.startswith('T:'),
+                     limit_price.startswith('L:'),
+                     stop_price.startswith('S:'),
+                     dt.startswith('D:')]):
                 return None
 
             return {
-                'action': action[2:],
-                'qty': int(qty[2:]),
-                'order_type': order_type[2:].replace('_', ' '),
+                'action':      action[2:],
+                'qty':         int(qty[2:]),
+                'order_type':  order_type[2:].replace('_', ' '),
                 'limit_price': float(limit_price[2:]),
-                'stop_price': float(stop_price[2:]),
-                'dt': pd.to_datetime(dt[2:], unit='s', utc=True)}
+                'stop_price':  float(stop_price[2:]),
+                'dt':          pd.to_datetime(dt[2:], unit='s', utc=True)}
 
         except ValueError:
             log.warning("Error parsing order metadata: {}".format(
@@ -897,7 +891,7 @@ class IBBroker(Broker):
 
         def _update_from_execution(zp_order, ib_order_id):
             if ib_order_id in self._tws.executions and \
-               ib_order_id not in self._tws.open_orders:
+                    ib_order_id not in self._tws.open_orders:
                 zp_order.status = ZP_ORDER_STATUS.FILLED
                 executions = self._tws.executions[ib_order_id]
                 last_exec_detail = \
@@ -942,7 +936,7 @@ class IBBroker(Broker):
                     continue
 
                 try:
-                    commission = self._tws.commissions[ib_order_id][exec_id]\
+                    commission = self._tws.commissions[ib_order_id][exec_id] \
                         .m_commission
                 except KeyError:
                     log.warning(
@@ -959,8 +953,7 @@ class IBBroker(Broker):
                     amount=amount,
                     dt=pd.to_datetime(exec_detail.m_time, utc=True),
                     price=exec_detail.m_price,
-                    order_id=order.id,
-                    commission=commission
+                    order_id=order.id
                 )
                 self._transactions[exec_id] = tx
 
