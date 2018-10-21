@@ -130,7 +130,7 @@ class RealtimeClock(object):
         :return:
         """
         from datetime import timedelta
-        num_days = 5
+        num_days = 7
         from trading_calendars import get_calendar
         self.sessions = get_calendar("NYSE").sessions_in_range(
             str(pd.to_datetime('now', utc=True).date() - timedelta(days=num_days*2)),
@@ -138,7 +138,7 @@ class RealtimeClock(object):
         )
 
         # for day in range(num_days, 0, -1):
-        for day in range(1, num_days):
+        for day in range(2, num_days):
             current_time = pd.to_datetime('now', utc=True)
             # server_time = (current_time + self.time_skew).floor('1 min') - timedelta(days=day)
             server_time = (current_time + self.time_skew).floor('1 min') + timedelta(days=day)
@@ -148,11 +148,10 @@ class RealtimeClock(object):
             yield server_time, BEFORE_TRADING_START_BAR
             should_end_day = True
             counter = 0
-            num_minutes = 5
+            num_minutes = 6*60
             minute_list = []
             for i in range(num_minutes + 1):
-                minute = "13:3%d" % (i+1)
-                minute_list.append(pd.to_datetime(minute, utc=True))
+                minute_list.append(pd.to_datetime("13:31", utc=True) + timedelta(minutes=i))
             while self.is_broker_alive():
                 # current_time = pd.to_datetime('now', utc=True)
                 # server_time = (current_time + self.time_skew).floor('1 min')
@@ -175,4 +174,4 @@ class RealtimeClock(object):
                     counter += 1
                     if self.minute_emission:
                         yield server_time, MINUTE_END
-                sleep(5)
+                # sleep(0.5)
