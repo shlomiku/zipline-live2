@@ -1206,8 +1206,11 @@ class TradingAlgorithm(object):
 
         if asset.auto_close_date:
             day = normalize_date(self.get_datetime())
-
-            if day > min(asset.end_date, asset.auto_close_date):
+            end_date = min(asset.end_date, asset.auto_close_date)
+            if isinstance(end_date, str):
+                from dateutil import parser
+                end_date = parser.parse(end_date).replace(tzinfo=pytz.UTC)
+            if day > end_date:
                 # If we are after the asset's end date or auto close date, warn
                 # the user that they can't place an order for this asset, and
                 # return None.
