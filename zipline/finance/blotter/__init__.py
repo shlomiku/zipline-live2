@@ -14,9 +14,11 @@
 # limitations under the License.
 
 from .simulation_blotter import SimulationBlotter
+from .blotter_live import BlotterLive
 from .blotter import Blotter
 
 __all__ = [
     'SimulationBlotter',
+    'BlotterLive',
     'Blotter',
 ]

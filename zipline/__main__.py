@@ -318,7 +318,7 @@ def run(ctx,
                      (cl_name, mod_name))
         brokerobj = bclass(broker_uri)
         if end is None:
-            end = pd.Timestamp.utcnow()
+            end = pd.Timestamp.utcnow() + pd.Timedelta(days=1)
 
     if (algotext is not None) == (algofile is not None):
         ctx.fail(
@@ -352,7 +352,9 @@ def run(ctx,
         benchmark_returns=None,
         broker=brokerobj,
         state_filename=state_file,
-        realtime_bar_target=realtime_bar_target
+        realtime_bar_target=realtime_bar_target,
+        performance_callback=None,
+        stop_execution_callback=None
     )
 
     if output == '-':

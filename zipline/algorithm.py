@@ -439,7 +439,9 @@ class TradingAlgorithm(object):
 
     def before_trading_start(self, data):
         self.compute_eager_pipelines()
-
+        if hasattr(self, "broker"):
+            # we are live, we need to updated our portfolio from the broker before we start
+            self.broker._get_positions_from_broker()
         if self._before_trading_start is None:
             return
 
@@ -1204,8 +1206,11 @@ class TradingAlgorithm(object):
 
         if asset.auto_close_date:
             day = normalize_date(self.get_datetime())
-
-            if day > min(asset.end_date, asset.auto_close_date):
+            end_date = min(asset.end_date, asset.auto_close_date)
+            if isinstance(end_date, str):
+                from dateutil import parser
+                end_date = parser.parse(end_date).replace(tzinfo=pytz.UTC)
+            if day > end_date:
                 # If we are after the asset's end date or auto close date, warn
                 # the user that they can't place an order for this asset, and
                 # return None.
@@ -2223,7 +2228,6 @@ class TradingAlgorithm(object):
     # Pipeline API
     ##############
     @api_method
-    @require_not_initialized(AttachPipelineAfterInitialize())
     @expect_types(
         pipeline=Pipeline,
         name=string_types,
@@ -2268,7 +2272,7 @@ class TradingAlgorithm(object):
             raise DuplicatePipelineName(name=name)
 
         self._pipelines[name] = AttachedPipeline(pipeline, iter(chunks), eager)
-
+        log.info('Pipeline {} attached'.format(name))
         # Return the pipeline to allow expressions like
         # p = attach_pipeline(Pipeline(), 'name')
         return pipeline
