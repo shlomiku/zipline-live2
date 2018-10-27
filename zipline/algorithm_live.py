@@ -14,6 +14,7 @@ import os.path
 from datetime import datetime, timedelta
 import logbook
 import pandas as pd
+import pytz
 from IPython import embed
 from dateutil.relativedelta import relativedelta
 
@@ -241,7 +242,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
 
         asset = super(self.__class__, self).symbol(symbol_str)
         tradeable_asset = asset.to_dict()
-        end_date = str((datetime.utcnow() + relativedelta(years=10)).date())
+        end_date = pd.Timestamp((datetime.utcnow() + relativedelta(years=10)).date()).replace(tzinfo=pytz.UTC)
         tradeable_asset['end_date'] = end_date
         tradeable_asset['auto_close_date'] = end_date
         log.info('Extended lifetime of asset {} to {}'.format(symbol_str,
