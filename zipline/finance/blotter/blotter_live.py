@@ -93,6 +93,9 @@ class BlotterLive(Blotter):
     @expect_types(asset=Asset)
     def order(self, asset, amount, style, order_id=None):
         assert order_id is None
+        if amount == 0:
+            # it's a zipline fuck up.. we shouldn't get orders with amount 0. ignoring this order
+            return ''
         order = self.broker.order(asset, amount, style)
         self.new_orders.append(order)
 
