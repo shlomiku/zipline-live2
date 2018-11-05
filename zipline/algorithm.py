@@ -333,6 +333,8 @@ class TradingAlgorithm(object):
         self._initialize = None
         self._before_trading_start = None
         self._analyze = None
+        self._performance_callback = None
+        self._stop_execution_callback = None
 
         self._in_before_trading_start = False
 
