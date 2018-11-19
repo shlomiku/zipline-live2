@@ -146,15 +146,17 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         TradingAlgorithm._create_generator(self, self.sim_params)
 
         # capital base is the ammount of money the algo can use
-        # it must be set with run_algorithm, and it's optional in cli mode with default value of 10^6
+        # it must be set with run_algorithm, and it's optional in cli mode with default value of 10 million
+        # please note that in python: 10**7 or 10e6 is 10 million or 10000000
+        # note2: the default value is defined in zipline/__main__.py under `--capital-base` option
         # we need to support these scenarios:
-        # 1. cli mode with default param - we need to replace 10^6 with value from broker
+        # 1. cli mode with default param - we need to replace 10e6 with value from broker
         # 2. run_algorithm or cli with specified value - if I have more than one algo running and I want to allocate
         #    a specific value for each algo, I cannot override it with value from broker because it will set to max val
         # so, we will check if it's default value - assuming at this stage capital used for one algo will be less
-        # than 10^6, we will override it with value from broker. if it's specified to something else we will not change
+        # than 10e6, we will override it with value from broker. if it's specified to something else we will not change
         # anything.
-        if self.metrics_tracker._capital_base == 10 ^ 6:  # should be changed in the future with a centralized value
+        if self.metrics_tracker._capital_base == 10e6:  # should be changed in the future with a centralized value
             # the capital base is held in the metrics_tracker then the ledger then the Portfolio, so the best
             # way to handle this, since it's used in many spots, is creating a new metrics_tracker with the new
             # value. and ofc intialized relevant parts. this is copied from TradingAlgorithm._create_generator
