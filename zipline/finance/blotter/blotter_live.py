@@ -188,9 +188,9 @@ class BlotterLive(Blotter):
         self._processed_transactions = all_transactions
 
         new_commissions = [{'asset': tx.asset,
-                            'cost': tx.commission,
+                            'cost': self.broker.orders[new_transactions[idx].order_id].commission,
                             'order': self.orders[tx.order_id]}
-                           for tx in new_transactions]
+                           for idx, tx in enumerate(new_transactions)]
 
         all_closed_orders = [order
                              for order in itervalues(self.orders)
