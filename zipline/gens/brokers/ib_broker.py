@@ -484,8 +484,10 @@ class TWSConnection(EClientSocket, EWrapper):
 
     def realtimeBar(self, req_id, time, open_, high, low, close, volume, wap,
                     count):
-        value = (";".join([str(close), str(count), str(time), str(volume),
+        value = (";".join([str(close), str(count), str(time*1000), str(volume),
                            str(wap), "true"]))
+        #We have to multiply the time by 1000 as Java returns epoch in seconds
+        # and _process_tick expects epoch in Milliseconds
         self._process_tick(req_id, tick_type=48, value=value)
 
     def scannerDataEnd(self, req_id):
