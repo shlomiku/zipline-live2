@@ -137,6 +137,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             minute_emission=minutely_emission,
             time_skew=self.broker.time_skew,
             is_broker_alive=self.broker.is_alive,
+            execution_id=self.sim_params._execution_id,
             stop_execution_callback=self._stop_execution_callback
         )
 
