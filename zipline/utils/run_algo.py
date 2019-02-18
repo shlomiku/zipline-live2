@@ -84,7 +84,8 @@ def _run(handle_data,
          state_filename,
          realtime_bar_target,
          performance_callback,
-         stop_execution_callback):
+         stop_execution_callback,
+         execution_id):
     """
     Run a backtest for the given algorithm.
     This is shared between the cli and :func:`zipline.run_algo`.
@@ -97,6 +98,7 @@ def _run(handle_data,
     stop_execution_callback - A callback to check if execution should be stopped. it is used to be able to stop live
         trading (also simulation could be stopped using this) execution. if the callback returns True, then algo
         execution will be aborted.
+    execution_id - unique id to identify this execution (backtest or live instance)
     """
     if benchmark_returns is None:
         benchmark_returns, _ = load_market_data(environ=environ)
@@ -231,6 +233,7 @@ def _run(handle_data,
             capital_base=capital_base,
             emission_rate=emission_rate,
             data_frequency=data_frequency,
+            execution_id=execution_id
         ),
         metrics_set=metrics_set,
         blotter=blotter,
@@ -334,6 +337,7 @@ def run_algorithm(start,
                   broker=None,
                   performance_callback=None,
                   stop_execution_callback=None,
+                  execution_id=None,
                   state_filename=None,
                   realtime_bar_target=None
                   ):
@@ -403,6 +407,8 @@ def run_algorithm(start,
     stop_execution_callback : A callback to check if execution should be stopped. it is used to be able to stop live
                               trading (also simulation could be stopped using this) execution. if the callback returns
                               True, then algo execution will be aborted.
+    execution_id : unique id to identify this execution instance (backtest or live) will be used to mark and get logs
+                   for this specific execution instance.
     state_filename : path to pickle file storing the algorithm "context" (similar to self)
 
     Returns
@@ -442,5 +448,6 @@ def run_algorithm(start,
         state_filename=state_filename,
         realtime_bar_target=realtime_bar_target,
         performance_callback=performance_callback,
-        stop_execution_callback=stop_execution_callback
+        stop_execution_callback=stop_execution_callback,
+        execution_id=execution_id
     )
