@@ -354,7 +354,8 @@ def run(ctx,
         state_filename=state_file,
         realtime_bar_target=realtime_bar_target,
         performance_callback=None,
-        stop_execution_callback=None
+        stop_execution_callback=None,
+        execution_id=None
     )
 
     if output == '-':
