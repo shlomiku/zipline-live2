@@ -159,6 +159,9 @@ class TradingAlgorithm(object):
     analyze : callable[(context, DataFrame) -> None], optional
         Function that is called at the end of the backtest. This is passed
         the context and the performance results for the backtest.
+    teardown : algo method like handle_data() or before_trading_start() that
+            is called when the algo execution stops and allows the developer
+            to nicely kill the algo execution.
     script : str, optional
         Algoscript that contains the definitions for the four algorithm
         lifecycle functions and any supporting code.
@@ -225,6 +228,7 @@ class TradingAlgorithm(object):
                  handle_data=None,
                  before_trading_start=None,
                  analyze=None,
+                 teardown=None,
                  #
                  trading_calendar=None,
                  metrics_set=None,
@@ -355,6 +359,8 @@ class TradingAlgorithm(object):
                 unexpected_api_methods.add('before_trading_start')
             if analyze is not None:
                 unexpected_api_methods.add('analyze')
+            if teardown is not None:
+                unexpected_api_methods.add('teardown')
 
             if unexpected_api_methods:
                 raise ValueError(
@@ -376,12 +382,14 @@ class TradingAlgorithm(object):
             )
             # Optional analyze function, gets called after run
             self._analyze = self.namespace.get('analyze')
+            self._teardown = self.namespace.get('teardown')
 
         else:
             self._initialize = initialize or (lambda self: None)
             self._handle_data = handle_data
             self._before_trading_start = before_trading_start
             self._analyze = analyze
+            self._teardown = teardown
             self._performance_callback = performance_callback
             self._stop_execution_callback = stop_execution_callback
 
@@ -458,6 +466,10 @@ class TradingAlgorithm(object):
     def handle_data(self, data):
         if self._handle_data:
             self._handle_data(self, data)
+
+    def teardown(self):
+        if self._teardown:
+            self._teardown(self)
 
     def analyze(self, perf):
         if self._analyze is None:
@@ -672,7 +684,7 @@ class TradingAlgorithm(object):
         # of daily_perf. Could potentially raise or log a
         # warning.
         for perf in perfs:
-            if 'daily_perf' in perf:
+            if perf and 'daily_perf' in perf:
 
                 perf['daily_perf'].update(
                     perf['daily_perf'].pop('recorded_vars')

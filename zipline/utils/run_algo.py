@@ -85,6 +85,7 @@ def _run(handle_data,
          realtime_bar_target,
          performance_callback,
          stop_execution_callback,
+         teardown,
          execution_id):
     """
     Run a backtest for the given algorithm.
@@ -98,6 +99,7 @@ def _run(handle_data,
     stop_execution_callback - A callback to check if execution should be stopped. it is used to be able to stop live
         trading (also simulation could be stopped using this) execution. if the callback returns True, then algo
         execution will be aborted.
+    teardown - algo method like handle_data() or before_trading_start() that is called when the algo execution stops
     execution_id - unique id to identify this execution (backtest or live instance)
     """
     if benchmark_returns is None:
@@ -245,6 +247,7 @@ def _run(handle_data,
             'handle_data': handle_data,
             'before_trading_start': before_trading_start,
             'analyze': analyze,
+            'teardown': teardown,
         } if algotext is None else {
             'algo_filename': getattr(algofile, 'name', '<algorithm>'),
             'script': algotext,
@@ -321,6 +324,7 @@ def run_algorithm(start,
                   handle_data=None,
                   before_trading_start=None,
                   analyze=None,
+                  teardown=None,
                   data_frequency='daily',
                   bundle='quantopian-quandl',
                   bundle_timestamp=None,
@@ -407,6 +411,8 @@ def run_algorithm(start,
     stop_execution_callback : A callback to check if execution should be stopped. it is used to be able to stop live
                               trading (also simulation could be stopped using this) execution. if the callback returns
                               True, then algo execution will be aborted.
+    teardown : algo method like handle_data() or before_trading_start() that is called when the algo execution stops
+               and allows the developer to nicely kill the algo execution
     execution_id : unique id to identify this execution instance (backtest or live) will be used to mark and get logs
                    for this specific execution instance.
     state_filename : path to pickle file storing the algorithm "context" (similar to self)
@@ -427,6 +433,7 @@ def run_algorithm(start,
         initialize=initialize,
         before_trading_start=before_trading_start,
         analyze=analyze,
+        teardown=teardown,
         algofile=None,
         algotext=None,
         defines=(),

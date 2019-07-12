@@ -32,7 +32,7 @@ from zipline.finance.metrics import MetricsTracker, load as load_metrics_set
 log = logbook.Logger("Live Trading")
 # how many minutes before Trading starts needs the function before_trading_starts
 # be launched
-_minutes_before_trading_starts = 345
+_minutes_before_trading_starts = 60*4
 
 
 class LiveAlgorithmExecutor(AlgorithmSimulator):
@@ -97,6 +97,13 @@ class LiveTradingAlgorithm(TradingAlgorithm):
 
     def handle_data(self, data):
         super(self.__class__, self).handle_data(data)
+        store_context(self.state_filename,
+                      context=self,
+                      checksum=self.algo_filename,
+                      exclude_list=self._context_persistence_excludes)
+
+    def teardown(self):
+        super(self.__class__, self).teardown()
         store_context(self.state_filename,
                       context=self,
                       checksum=self.algo_filename,
@@ -258,6 +265,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         return daily_stats
 
     def on_exit(self):
+        self.teardown()
         if not self.realtime_bar_target:
             return
 
@@ -278,6 +286,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
             realtime_history[asset].to_csv(path, mode='a',
                                            index_label='datetime',
                                            header=not os.path.exists(path))
+
 
     def _pipeline_output(self, pipeline, chunks, name):
         # This method is taken from TradingAlgorithm.
