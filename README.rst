@@ -13,8 +13,9 @@ zipline-live
 |Coverage Status|
 |Apache License|
 
-Welcome to zipline-live, the on-premise trading platform built on top of Quantopian’s
+Welcome to zipline-live2, the on-premise trading platform built on top of Quantopian’s
 `zipline <https://github.com/quantopian/zipline>`_.
+zipline-live2 is based on the `zipline-live <http://www.zipline-live.io>`_.
 
 zipline-live is designed to be an extensible, drop-in replacement for zipline with
 multiple brokerage support to enable on premise trading of zipline algorithms.
