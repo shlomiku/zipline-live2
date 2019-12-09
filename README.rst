@@ -1,4 +1,4 @@
-.. image:: ./zipline-live2.png
+.. image:: ./zipline-live2.small.png
     :target: https://github.com/shlomikushchi/zipline-live2
     :width: 212px
     :align: center
