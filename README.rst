@@ -1,17 +1,11 @@
-.. image:: http://www.zipline-live.io/images/zipline_live.png
-    :target: http://www.zipline-live.io
+.. image:: ./zipline-live2.png
+    :target: https://github.com/shlomikushchi/zipline-live2
     :width: 212px
     :align: center
     :alt: zipline-live
 
-zipline-live
+zipline-live2
 ============
-
-|pypi badge|
-|travis status|
-|appveyor status|
-|Coverage Status|
-|Apache License|
 
 Welcome to zipline-live2, the on-premise trading platform built on top of Quantopian’s
 `zipline <https://github.com/quantopian/zipline>`_.
