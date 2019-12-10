@@ -5,29 +5,28 @@
     :alt: zipline-live
 
 zipline-live2
-============
+=============
 
-Welcome to zipline-live2, the on-premise trading platform built on top of Quantopian’s
+Welcome to zipline-live2, the on-premise trading platform built on top of Quantopian's
 `zipline <https://github.com/quantopian/zipline>`_.
-zipline-live2 is based on the `zipline-live <http://www.zipline-live.io>`_.
 
-zipline-live is designed to be an extensible, drop-in replacement for zipline with
+zipline-live2 is based on the `zipline-live <http://www.zipline-live.io>`_ project.
+
+zipline-live2 is designed to be an extensible, drop-in replacement for zipline with
 multiple brokerage support to enable on premise trading of zipline algorithms.
 
-See the `tutorial <http://www.zipline-live.io/tutorial>`_ and `features <http://www.zipline-live.io/features>`_ for further details.
+Installation
+============
+recommended way to use this package is with docker.
+
+you should build a docker image using this command:
+
+`docker build -t quantopian/zipline .`
+
+(if your algo requires more packages, you could extend the dockerfile-dev and install using: docker build -f dockerfile-dev-t quantopian/zipline .)
 
 
+you could run everything on a local machine with whatever OS you want. but you may experience package installation issues.
 
-.. |pypi badge| image:: https://badge.fury.io/py/zipline-live.svg
-    :target: https://pypi.python.org/pypi/zipline-live
-.. |travis status| image:: https://travis-ci.org/zipline-live/zipline.svg?branch=master
-    :target: https://travis-ci.org/zipline-live/zipline
-.. |appveyor status| image:: https://ci.appveyor.com/api/projects/status/jkuo1hca8v8aueym?svg=true
-   :target: https://ci.appveyor.com/project/pbharrin/zipline/branch/master
-.. |Coverage Status| image:: https://coveralls.io/repos/github/zipline-live/zipline/badge.svg?branch=master
-   :target: https://coveralls.io/github/zipline-live/zipline?branch=master
-.. |Apache License| image:: https://img.shields.io/badge/License-Apache%202.0-blue.svg
-   :target: https://www.apache.org/licenses/LICENSE-2.0
+this is the best way to ensure that you are using the same version everyone else use.
 
-
-.. _`Zipline Install Documentation` : http://www.zipline.io/install.html
