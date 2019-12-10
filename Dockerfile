@@ -83,7 +83,7 @@ EXPOSE ${NOTEBOOK_PORT}
 
 ADD . /zipline
 WORKDIR /zipline
-RUN pip install -e .
+RUN pip install -e . --default-timeout=200
 
 #
 # start the jupyter server
