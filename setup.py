@@ -176,7 +176,7 @@ def _with_bounds(req):
     try:
         req, lower = req.split('==')
     except ValueError:
-        return req`
+        return req
     else:
         with_bounds = [req, '>=', lower]
         upper = REQ_UPPER_BOUNDS.get(req)
