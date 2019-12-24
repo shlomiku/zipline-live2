@@ -285,8 +285,8 @@ conditional_arguments = {
 }
 
 setup(
-    name='zipline-live',
-    url="http://zipline-live.io",
+    name='zipline-live2',
+    url="https://github.com/shlomikushchi/zipline-live2",
     version=versioneer.get_version(),
     cmdclass=LazyBuildExtCommandClass(versioneer.get_cmdclass()),
     description='A backtester and live trader for financial algorithms.',
