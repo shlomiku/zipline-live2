@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 import logbook
 import pandas as pd
 import pytz
-from IPython import embed
 from dateutil.relativedelta import relativedelta
 
 from zipline.finance.blotter.blotter_live import BlotterLive
