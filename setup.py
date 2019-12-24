@@ -176,7 +176,7 @@ def _with_bounds(req):
     try:
         req, lower = req.split('==')
     except ValueError:
-        return req
+        return req`
     else:
         with_bounds = [req, '>=', lower]
         upper = REQ_UPPER_BOUNDS.get(req)
@@ -247,7 +247,7 @@ def extras_requires(conda_format=False):
         extra: read_requirements('etc/requirements_{0}.txt'.format(extra),
                                  strict_bounds=True,
                                  conda_format=conda_format)
-        for extra in ('dev', 'talib', 'ib', 'alpaca')
+        for extra in ('dev', 'talib', 'alpaca')
     }
     extras['all'] = [req for reqs in extras.values() for req in reqs]
 
