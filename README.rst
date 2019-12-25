@@ -19,7 +19,7 @@ Installation
 ============
 use a fresh virtual env
 
-.. code-block:: RST
+.. code-block:: batch
 
     pip install virtualenv
     virtualenv venv
@@ -30,7 +30,8 @@ use a fresh virtual env
             venv\Scripts\activate
 
 installing the package:
-.. code-block:: python
+
+.. code-block:: batch
 
     pip install zipline-live2
 
