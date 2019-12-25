@@ -50,3 +50,19 @@ you could run everything on a local machine with whatever OS you want. but you m
 
 this is the best way to ensure that you are using the same version everyone else use.
 
+
+Ingest data
+===========
+the quantopian-quandl is a free daily bundle.
+every day you should execute this when live trading in order to get the most updated data
+
+.. code-block:: batch
+
+ zipline ingest -b quantopian-quandl
+
+Run the cli tool
+================
+
+.. code-block:: batch
+
+    zipline run -f ~/zipline-algos/demo.py --state-file ~/zipline-algos/demo.state --realtime-bar-target ~/zipline-algos/realtime-bars/ --broker ib --broker-uri localhost:7496:1232 --bundle quantopian-quandl --data-frequency minute
