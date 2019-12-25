@@ -17,11 +17,30 @@ multiple brokerage support to enable on premise trading of zipline algorithms.
 
 Installation
 ============
-recommended way to use this package is with docker.
+use a fresh virtual env
 
-you should build a docker image using this command:
+.. code-block:: python
 
-`docker build -t quantopian/zipline .`
+    pip install virtualenv
+    virtualenv venv
+    activate:
+        Mac OS / Linux
+            source venv/bin/activate
+        Windows
+            venv\Scripts\activate
+
+installing the package:
+.. code-block:: python
+
+    pip install zipline-live2
+
+
+for advanced capabilities recommended way to use this package with docker using this command:
+
+.. code-block:: docker
+
+    docker build -t quantopian/zipline .
+
 
 (if your algo requires more packages, you could extend the dockerfile-dev and install using: docker build -f dockerfile-dev-t quantopian/zipline .)
 
