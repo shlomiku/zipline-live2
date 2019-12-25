@@ -57,7 +57,7 @@ class LiveTradingAlgorithm(TradingAlgorithm):
         # exclude (and not persist if initiated) or excluded from the serialization
         # function that reinstate or save the context variable to its last state.
         # trading client can never be serialized, the initialized function and
-        # perf tracker remember the context variables and the past parformance
+        # perf tracker remember the context variables and the past performance
         # and need to be whitelisted
         self._context_persistence_blacklist = ['trading_client']
         self._context_persistence_whitelist = ['initialized', 'perf_tracker']
