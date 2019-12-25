@@ -15,7 +15,7 @@
 from collections import Iterable, namedtuple
 from copy import copy
 import warnings
-from datetime import tzinfo, time
+from datetime import tzinfo, time, timedelta
 import logbook
 import pytz
 import pandas as pd
@@ -1224,7 +1224,9 @@ class TradingAlgorithm(object):
             if isinstance(end_date, str):
                 from dateutil import parser
                 end_date = parser.parse(end_date).replace(tzinfo=pytz.UTC)
-            if day > end_date:
+            # when we use pipeline live the end date is always yesterday so we add 5 days to still keep this condition
+            # but also allowing to use pipeline live as well. 5 is a good number for weekends/holidays
+            if day > end_date + timedelta(days=5):
                 # If we are after the asset's end date or auto close date, warn
                 # the user that they can't place an order for this asset, and
                 # return None.
