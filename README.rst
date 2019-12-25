@@ -19,7 +19,7 @@ Installation
 ============
 use a fresh virtual env
 
-.. code-block:: python
+.. code-block:: RST
 
     pip install virtualenv
     virtualenv venv
