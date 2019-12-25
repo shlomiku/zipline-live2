@@ -318,7 +318,7 @@ def run(ctx,
                      (cl_name, mod_name))
         brokerobj = bclass(broker_uri)
         if end is None:
-            end = pd.Timestamp.utcnow() + pd.Timedelta(days=1)
+            end = pd.Timestamp.utcnow() + pd.Timedelta(days=1, seconds=1)  # Add 1-second to assure that end is > 1day
 
     if (algotext is not None) == (algofile is not None):
         ctx.fail(
