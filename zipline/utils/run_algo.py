@@ -336,8 +336,6 @@ def run_algorithm(start,
                   strict_extensions=True,
                   environ=os.environ,
                   blotter='default',
-                  live_trading=False,
-                  tws_uri=None,
                   broker=None,
                   performance_callback=None,
                   stop_execution_callback=None,
@@ -403,8 +401,6 @@ def run_algorithm(start,
         ``zipline.extensions.register`` and call it with no parameters.
         Default is a :class:`zipline.finance.blotter.SimulationBlotter` that
         never cancels orders.
-    live_trading : boolean, indicating are we running forward (live) and not backwards (backtesting)
-    tws_uri : ip:listening_port:client id e.g "localhost:4002:1232"
     broker : instance of zipline.gens.brokers.broker.Broker
     performance_callback : a callback to send performance results everyday and not only at the end of the backtest.
                            this allows to run live, and monitor the performance of the algorithm
