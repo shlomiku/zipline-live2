@@ -1,4 +1,4 @@
-.. image:: ./zipline-live2.small.png
+.. image:: ./images/zipline-live2.small.png
     :target: https://github.com/shlomikushchi/zipline-live2
     :width: 212px
     :align: center
@@ -34,6 +34,12 @@ installing the package:
 .. code-block:: batch
 
     pip install zipline-live2
+
+.. image:: ./images/youtube/installing.png
+    :target: https://www.youtube.com/watch?v=Zh9Vs_yanXY
+    :width: 212px
+    :align: center
+    :alt: zipline-live
 
 
 for advanced capabilities recommended way to use this package with docker using this command:
