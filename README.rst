@@ -66,6 +66,23 @@ every day you should execute this when live trading in order to get the most upd
 
  zipline ingest -b quantopian-quandl
 
+Running Backtests
+=================
+you can run a backtest with this command:
+
+.. code-block:: batch
+
+    zipline run -f zipline_repo/zipline/examples/dual_moving_average.py --start 2015-1-1 --end 2018-1-1 --bundle quantopian-quandl -o out.pickle --capital-bas e 10000
+
+
+.. image:: ./images/youtube/command_line_backtest.png
+    :target: https://youtu.be/jeuiCpx9k7Q
+    :width: 212px
+    :align: center
+    :alt: zipline-live
+
+
+
 Run the cli tool
 ================
 
