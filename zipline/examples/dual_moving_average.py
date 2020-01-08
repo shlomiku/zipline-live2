@@ -27,7 +27,7 @@ from zipline.finance import commission, slippage
 
 
 def initialize(context):
-    context.sym = symbol('AAPL')
+    context.sym = symbol('GOOG')
     context.i = 0
 
     # Explicitly set the commission/slippage to the "old" value until we can
@@ -59,7 +59,7 @@ def handle_data(context, data):
         order_target(context.sym, 0)
 
     # Save values for later inspection
-    record(AAPL=data.current(context.sym, "price"),
+    record(GOOG=data.current(context.sym, "price"),
            short_mavg=short_mavg,
            long_mavg=long_mavg)
 
@@ -82,9 +82,9 @@ def analyze(context=None, results=None):
 
     # If data has been record()ed, then plot it.
     # Otherwise, log the fact that no data has been recorded.
-    if ('AAPL' in results and 'short_mavg' in results and
+    if ('GOOG' in results and 'short_mavg' in results and
             'long_mavg' in results):
-        results['AAPL'].plot(ax=ax2)
+        results['GOOG'].plot(ax=ax2)
         results[['short_mavg', 'long_mavg']].plot(ax=ax2)
 
         trans = results.ix[[t != [] for t in results.transactions]]
@@ -98,7 +98,7 @@ def analyze(context=None, results=None):
                  'v', markersize=10, color='k')
         plt.legend(loc=0)
     else:
-        msg = 'AAPL, short_mavg & long_mavg data not captured using record().'
+        msg = 'GOOG, short_mavg & long_mavg data not captured using record().'
         ax2.annotate(msg, xy=(0.1, 0.5))
         log.info(msg)
 
