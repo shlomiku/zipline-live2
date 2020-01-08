@@ -15,6 +15,8 @@ zipline-live2 is based on the `zipline-live <http://www.zipline-live.io>`_ proje
 zipline-live2 is designed to be an extensible, drop-in replacement for zipline with
 multiple brokerage support to enable on premise trading of zipline algorithms.
 
+we recommend using python 3.6+ but python 2.7 is also supported.
+
 Installation
 ============
 use a fresh virtual env
