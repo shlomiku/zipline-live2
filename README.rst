@@ -66,6 +66,9 @@ every day you should execute this when live trading in order to get the most upd
 
  zipline ingest -b quantopian-quandl
 
+there is no free minute data. you could use paid services and create a custom bundle for that.
+if you do have the data, the package supports minute algo-trading.
+
 Running Backtests
 =================
 you can run a backtest with this command:
