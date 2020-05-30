@@ -3,6 +3,9 @@
     :width: 212px
     :align: center
     :alt: zipline-live
+************************************************************************************
+zipline-live2 is now continued under https://github.com/shlomikushchi/zipline-trader
+************************************************************************************
 
 zipline-live2
 =============
